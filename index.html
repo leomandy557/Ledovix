@@ -390,6 +390,16 @@ body{
   transition:all 0.2s;
 }
 .chat-custom-submit:hover{background:#00a381}
+.chat-screen-size-input{display:flex;flex-direction:column;gap:0.5rem;margin-left:2rem}
+.screen-size-row{display:flex;align-items:center;gap:0.5rem}
+.screen-size-field{position:relative;flex:1;display:flex;align-items:center}
+.screen-size-field input{width:100%;padding:0.65rem 1rem;padding-right:2rem;border-radius:12px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.screen-size-field input:focus{border-color:var(--brand)}
+.screen-size-unit{position:absolute;right:0.8rem;color:var(--text-muted);font-size:0.8rem;pointer-events:none}
+.screen-size-sep{color:var(--text);font-weight:600}
+.screen-size-snap{font-size:0.75rem;color:var(--brand);min-height:1rem}
+.chat-screen-size-submit{align-self:flex-start;padding:0.65rem 1rem;border-radius:12px;border:none;background:var(--brand);color:#fff;cursor:pointer;font-weight:600;transition:all 0.2s}
+.chat-screen-size-submit:hover{background:#00a381}
 .chat-contact-form{
   margin-left:2rem;padding:1rem;border-radius:12px;
   border:1.5px solid var(--border-light);background:var(--bg-card);
@@ -408,6 +418,7 @@ body{
   cursor:pointer;transition:all 0.2s;
 }
 .chat-contact-submit:hover{background:#00a381}
+.contact-error{font-size:0.75rem;color:#e74c3c;margin:-0.3rem 0 0.2rem 0.2rem;min-height:1rem}
 .chat-progress{
   padding:0.6rem 1.5rem;border-top:1px solid var(--border-light);
   display:flex;align-items:center;gap:0.6rem;flex-shrink:0;
@@ -945,12 +956,12 @@ function startChat(){
   const flow = getLocalizedFlow();
   setTimeout(()=>{
     hideTyping();
-    addBotMessage(flow[0].question, flow[0].options);
+    addBotMessage(flow[0].question, flow[0].options, flow[0].id);
   },1200);
 }
 
-function addBotMessage(text, options){
-  chatMessages.push({role:'bot',content:text,options});
+function addBotMessage(text, options, stepId){
+  chatMessages.push({role:'bot',content:text,options,stepId});
   renderMessages();
 }
 
@@ -1017,6 +1028,7 @@ function handleOptionClick(option){
   advanceConversation();
 }
 
+// Kept for any future custom single-input steps
 function showCustomInput(placeholder){
   const c = document.getElementById('chatMessages');
   const d = document.createElement('div');
@@ -1040,6 +1052,87 @@ function submitCustomInput(){
   advanceConversation();
 }
 
+// Standard LED cabinet size: 0.5m (500mm)
+const SNAP_SIZE = 0.5;
+const MIN_SIZE = 0.5;
+
+function snapSize(v){
+  const n = Math.max(MIN_SIZE, Math.round(parseFloat(v) * 2) / 2);
+  return Number.isFinite(n) ? n : MIN_SIZE;
+}
+
+function formatSize(w, h){
+  return `${w.toFixed(1)}m × ${h.toFixed(1)}m`;
+}
+
+function showScreenSizeInput(){
+  const c = document.getElementById('chatMessages');
+  const d = document.createElement('div');
+  d.className = 'chat-screen-size-input';
+  d.id = 'screenSizeInput';
+  d.style.animation = 'msgIn 0.3s ease-out 0.2s both';
+  d.innerHTML = `
+    <div class="screen-size-row">
+      <div class="screen-size-field">
+        <input type="number" id="screenWidth" min="0.5" step="0.1" placeholder="${t('flow.screenSize.width')}" onkeydown="if(event.key==='Enter')document.getElementById('screenHeight').focus()">
+        <span class="screen-size-unit">m</span>
+      </div>
+      <span class="screen-size-sep">×</span>
+      <div class="screen-size-field">
+        <input type="number" id="screenHeight" min="0.5" step="0.1" placeholder="${t('flow.screenSize.height')}" onkeydown="if(event.key==='Enter')submitScreenSize()">
+        <span class="screen-size-unit">m</span>
+      </div>
+    </div>
+    <div class="screen-size-snap" id="screenSizeSnap"></div>
+    <button class="chat-screen-size-submit" onclick="submitScreenSize()">→</button>
+  `;
+  c.appendChild(d);
+  c.scrollTop = c.scrollHeight;
+
+  const wInput = document.getElementById('screenWidth');
+  const hInput = document.getElementById('screenHeight');
+  const snapEl = document.getElementById('screenSizeSnap');
+
+  function updateSnap(){
+    const w = parseFloat(wInput.value);
+    const h = parseFloat(hInput.value);
+    if(Number.isFinite(w) && Number.isFinite(h)){
+      const sw = snapSize(w);
+      const sh = snapSize(h);
+      if(sw !== w || sh !== h){
+        snapEl.textContent = t('flow.screenSize.snap', {size: formatSize(sw, sh)});
+      } else {
+        snapEl.textContent = '';
+      }
+    } else {
+      snapEl.textContent = '';
+    }
+  }
+
+  wInput.addEventListener('input', updateSnap);
+  hInput.addEventListener('input', updateSnap);
+  wInput.addEventListener('blur', function(){ this.value = snapSize(this.value).toFixed(1); updateSnap(); });
+  hInput.addEventListener('blur', function(){ this.value = snapSize(this.value).toFixed(1); updateSnap(); });
+
+  setTimeout(()=>wInput?.focus(),100);
+}
+
+function submitScreenSize(){
+  const wInput = document.getElementById('screenWidth');
+  const hInput = document.getElementById('screenHeight');
+  if(!wInput || !hInput) return;
+  let w = parseFloat(wInput.value);
+  let h = parseFloat(hInput.value);
+  if(!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+  w = snapSize(w);
+  h = snapSize(h);
+  const display = formatSize(w, h);
+  document.getElementById('screenSizeInput').remove();
+  addUserMessage(display);
+  collectedNeeds.screenSize = {width:w, height:h, display};
+  advanceConversation();
+}
+
 function advanceConversation(){
   const flow = getLocalizedFlow();
   const nextStep = currentStep + 1;
@@ -1057,7 +1150,7 @@ function advanceConversation(){
     showTyping();
     setTimeout(()=>{
       hideTyping();
-      addBotMessage(flow[nextStep].question);
+      addBotMessage(flow[nextStep].question, undefined, flow[nextStep].id);
       showContactForm();
       currentStep = nextStep;
       updateProgress();
@@ -1069,15 +1162,27 @@ function advanceConversation(){
   setTimeout(()=>{
     hideTyping();
     const step = flow[nextStep];
-    if(step.isCustom){
-      addBotMessage(step.question);
+    if(step.id === 'screenSize'){
+      addBotMessage(step.question, undefined, step.id);
+      showScreenSizeInput();
+    } else if(step.isCustom){
+      addBotMessage(step.question, undefined, step.id);
       showCustomInput(step.placeholder||'Type your answer...');
     } else {
-      addBotMessage(step.question, step.options);
+      addBotMessage(step.question, step.options, step.id);
     }
     currentStep = nextStep;
     updateProgress();
   },800);
+}
+
+function isValidEmail(email){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidPhone(phone){
+  const digits = (phone.match(/\d/g) || []).length;
+  return digits >= 8 && /^[\d\s\-+()]+$/.test(phone);
 }
 
 function showContactForm(){
@@ -1088,9 +1193,13 @@ function showContactForm(){
   d.style.animation = 'msgIn 0.3s ease-out 0.2s both';
   d.innerHTML = `
     <input type="text" id="cfName" placeholder="${t('contact.name')}" required>
+    <div class="contact-error" id="cfNameError"></div>
     <input type="email" id="cfEmail" placeholder="${t('contact.email')}" required>
-    <input type="tel" id="cfPhone" placeholder="${t('contact.phone')}">
+    <div class="contact-error" id="cfEmailError"></div>
+    <input type="tel" id="cfPhone" placeholder="${t('contact.phone')}" required>
+    <div class="contact-error" id="cfPhoneError"></div>
     <input type="text" id="cfCompany" placeholder="${t('contact.company')}">
+    <div class="contact-error" id="cfCompanyError"></div>
     <button class="chat-contact-submit" onclick="submitContact()">${t('contact.submit')}</button>
   `;
   c.appendChild(d);
@@ -1101,13 +1210,49 @@ function showContactForm(){
 function submitContact(){
   const name = document.getElementById('cfName')?.value.trim();
   const email = document.getElementById('cfEmail')?.value.trim();
-  if(!name || !email) return alert('Please fill in your name and email at minimum.');
+  const phone = document.getElementById('cfPhone')?.value.trim();
+  const company = document.getElementById('cfCompany')?.value.trim() || '';
+
+  // Clear previous errors
+  ['cfNameError','cfEmailError','cfPhoneError'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=''; });
+
+  let valid = true;
+  if(!name){
+    const el = document.getElementById('cfNameError');
+    if(el) el.textContent = t('contact.errors.name');
+    valid = false;
+  }
+  if(!email){
+    const el = document.getElementById('cfEmailError');
+    if(el) el.textContent = t('contact.errors.emailRequired');
+    valid = false;
+  } else if(!isValidEmail(email)){
+    const el = document.getElementById('cfEmailError');
+    if(el) el.textContent = t('contact.errors.emailInvalid');
+    valid = false;
+  }
+  if(!phone){
+    const el = document.getElementById('cfPhoneError');
+    if(el) el.textContent = t('contact.errors.phoneRequired');
+    valid = false;
+  } else if(!isValidPhone(phone)){
+    const el = document.getElementById('cfPhoneError');
+    if(el) el.textContent = t('contact.errors.phoneInvalid');
+    valid = false;
+  }
+
+  if(!valid){
+    const firstError = document.querySelector('.contact-error:not(:empty)');
+    if(firstError) firstError.previousElementSibling?.focus();
+    return;
+  }
+
   collectedNeeds.name = name;
   collectedNeeds.email = email;
-  collectedNeeds.phone = document.getElementById('cfPhone')?.value.trim() || '';
-  collectedNeeds.company = document.getElementById('cfCompany')?.value.trim() || '';
+  collectedNeeds.phone = phone;
+  collectedNeeds.company = company;
   document.getElementById('contactForm').remove();
-  addUserMessage(`Name: ${name}\nEmail: ${email}\nPhone: ${collectedNeeds.phone}\nCompany: ${collectedNeeds.company}`);
+  addUserMessage(`Name: ${name}\nEmail: ${email}\nPhone: ${phone}\nCompany: ${company}`);
   advanceConversation();
 }
 
@@ -1137,7 +1282,10 @@ function showSummary(){
   };
   let html = '<div class="summary-req"><h5>'+t('summary.requirements')+'</h5>';
   Object.entries(labels).forEach(([k,l])=>{
-    if(collectedNeeds[k]) html += `<div class="summary-req-item"><span class="summary-req-label">${l}:</span><span class="summary-req-value">${collectedNeeds[k]}</span></div>`;
+    let val = collectedNeeds[k];
+    if(!val) return;
+    if(k === 'screenSize' && typeof val === 'object') val = val.display || `${val.width}m × ${val.height}m`;
+    html += `<div class="summary-req-item"><span class="summary-req-label">${l}:</span><span class="summary-req-value">${val}</span></div>`;
   });
   html += '</div>';
 
@@ -1194,8 +1342,13 @@ const i18n = {
     'summary.notice':'⚡ The quote will be generated and sent to your email. Our team will follow up within 24 hours.',
     'summary.reset':'← Start New Consultation',
     'chat.online':'Online · LED Consultant','chat.step':'Step {step}/{total}',
-    'contact.name':'Your Name *','contact.email':'Email Address *','contact.phone':'Phone Number','contact.company':'Company Name',
+    'contact.name':'Your Name *','contact.email':'Email Address *','contact.phone':'Phone Number *','contact.company':'Company Name',
     'contact.submit':'Submit & Get Quote →',
+    'contact.errors.name':'Please enter your name.',
+    'contact.errors.emailRequired':'Email is required.',
+    'contact.errors.emailInvalid':'Please enter a valid email address.',
+    'contact.errors.phoneRequired':'Phone number is required.',
+    'contact.errors.phoneInvalid':'Please enter a valid phone number.',
     'flow.scenario.q':"Hi there! 👋 I'm Leo, your LED display consultant at LEDOVIX. To get started — where will this screen be used?",
     'flow.scenario.o1':'🏢 Indoor','flow.scenario.o2':'🌤️ Outdoor',
     'flow.installMethod.q':'Great. How do you plan to install the display?',
@@ -1203,6 +1356,9 @@ const i18n = {
     'flow.installMethod.o2':'🦶 Floor-standing (mobile stand, ground support)',
     'flow.screenSize.q':'What dimensions are you looking for? Please enter the width and height of the screen.',
     'flow.screenSize.ph':'e.g. 4m × 3m, or 6m wide × 4m high',
+    'flow.screenSize.width':'Width (m)',
+    'flow.screenSize.height':'Height (m)',
+    'flow.screenSize.snap':'Snapped to standard size: {size}',
     'flow.viewingDistance.q':"Last question — how far away will your audience typically be from the screen? This is crucial for me to determine the optimal pixel pitch.",
     'flow.viewingDistance.o1':'🔍 Very close (< 2m) — need ultra fine pitch (P1.2-P1.8)',
     'flow.viewingDistance.o2':'📏 Close (2-5m) — fine pitch (P1.8-P2.5)',
@@ -1233,8 +1389,13 @@ const i18n = {
     'summary.notice':'⚡ La cotización será generada y enviada a tu correo. Nuestro equipo te contactará en 24 horas.',
     'summary.reset':'← Nueva Consulta',
     'chat.online':'En línea · Consultor LED','chat.step':'Paso {step}/{total}',
-    'contact.name':'Tu Nombre *','contact.email':'Correo Electrónico *','contact.phone':'Teléfono','contact.company':'Empresa',
+    'contact.name':'Tu Nombre *','contact.email':'Correo Electrónico *','contact.phone':'Teléfono *','contact.company':'Empresa',
     'contact.submit':'Enviar y Obtener Cotización →',
+    'contact.errors.name':'Por favor ingresa tu nombre.',
+    'contact.errors.emailRequired':'El correo electrónico es obligatorio.',
+    'contact.errors.emailInvalid':'Por favor ingresa un correo electrónico válido.',
+    'contact.errors.phoneRequired':'El teléfono es obligatorio.',
+    'contact.errors.phoneInvalid':'Por favor ingresa un número de teléfono válido.',
     'flow.scenario.q':'¡Hola! 👋 Soy Leo, tu consultor de pantallas LED en LEDOVIX. Para empezar — ¿dónde se usará esta pantalla?',
     'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior',
     'flow.installMethod.q':'Genial. ¿Cómo planeas instalar la pantalla?',
@@ -1242,6 +1403,9 @@ const i18n = {
     'flow.installMethod.o2':'🦶 De pie (soporte móvil, base en el suelo)',
     'flow.screenSize.q':'¿Qué dimensiones buscas? Por favor ingresa el ancho y alto de la pantalla.',
     'flow.screenSize.ph':'ej. 4m × 3m, o 6m de ancho × 4m de alto',
+    'flow.screenSize.width':'Ancho (m)',
+    'flow.screenSize.height':'Alto (m)',
+    'flow.screenSize.snap':'Ajustado a tamaño estándar: {size}',
     'flow.viewingDistance.q':'Última pregunta — ¿a qué distancia estará tu audiencia de la pantalla? Esto es crucial para determinar el pixel pitch óptimo.',
     'flow.viewingDistance.o1':'🔍 Muy cerca (< 2m) — pitch ultra fino (P1.2-P1.8)',
     'flow.viewingDistance.o2':'📏 Cerca (2-5m) — pitch fino (P1.8-P2.5)',
@@ -1272,8 +1436,13 @@ const i18n = {
     'summary.notice':'⚡ O orçamento será gerado e enviado para seu e-mail. Nossa equipe fará o acompanhamento em 24 horas.',
     'summary.reset':'← Nova Consulta',
     'chat.online':'Online · Consultor LED','chat.step':'Passo {step}/{total}',
-    'contact.name':'Seu Nome *','contact.email':'E-mail *','contact.phone':'Telefone','contact.company':'Empresa',
+    'contact.name':'Seu Nome *','contact.email':'E-mail *','contact.phone':'Telefone *','contact.company':'Empresa',
     'contact.submit':'Enviar e Receber Orçamento →',
+    'contact.errors.name':'Por favor, insira seu nome.',
+    'contact.errors.emailRequired':'O e-mail é obrigatório.',
+    'contact.errors.emailInvalid':'Por favor, insira um e-mail válido.',
+    'contact.errors.phoneRequired':'O telefone é obrigatório.',
+    'contact.errors.phoneInvalid':'Por favor, insira um telefone válido.',
     'flow.scenario.q':'Olá! 👋 Sou Leo, seu consultor de painéis LED na LEDOVIX. Para começar — onde esta tela será usada?',
     'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior',
     'flow.installMethod.q':'Ótimo. Como você planeja instalar o painel?',
@@ -1281,6 +1450,9 @@ const i18n = {
     'flow.installMethod.o2':'🦶 De chão (suporte móvel, base no solo)',
     'flow.screenSize.q':'Quais dimensões você procura? Por favor, insira a largura e a altura da tela.',
     'flow.screenSize.ph':'ex. 4m × 3m, ou 6m de largura × 4m de altura',
+    'flow.screenSize.width':'Largura (m)',
+    'flow.screenSize.height':'Altura (m)',
+    'flow.screenSize.snap':'Ajustado ao tamanho padrão: {size}',
     'flow.viewingDistance.q':'Última pergunta — a que distância seu público estará da tela? Isso é crucial para determinar o pixel pitch ideal.',
     'flow.viewingDistance.o1':'🔍 Muito perto (< 2m) — pitch ultra fino (P1.2-P1.8)',
     'flow.viewingDistance.o2':'📏 Perto (2-5m) — pitch fino (P1.8-P2.5)',
@@ -1311,8 +1483,13 @@ const i18n = {
     'summary.notice':'⚡ Le devis sera généré et envoyé à votre e-mail. Notre équipe vous contactera sous 24 heures.',
     'summary.reset':'← Nouvelle Consultation',
     'chat.online':'En ligne · Consultant LED','chat.step':'Étape {step}/{total}',
-    'contact.name':'Votre Nom *','contact.email':'Adresse E-mail *','contact.phone':'Téléphone','contact.company':'Entreprise',
+    'contact.name':'Votre Nom *','contact.email':'Adresse E-mail *','contact.phone':'Téléphone *','contact.company':'Entreprise',
     'contact.submit':'Envoyer et Recevoir le Devis →',
+    'contact.errors.name':'Veuillez saisir votre nom.',
+    'contact.errors.emailRequired':'L\'e-mail est requis.',
+    'contact.errors.emailInvalid':'Veuillez saisir une adresse e-mail valide.',
+    'contact.errors.phoneRequired':'Le téléphone est requis.',
+    'contact.errors.phoneInvalid':'Veuillez saisir un numéro de téléphone valide.',
     'flow.scenario.q':'Bonjour ! 👋 Je suis Leo, votre consultant en écrans LED chez LEDOVIX. Pour commencer — où cet écran sera-t-il utilisé ?',
     'flow.scenario.o1':'🏢 Intérieur','flow.scenario.o2':'🌤️ Extérieur',
     'flow.installMethod.q':'Très bien. Comment prévoyez-vous d\'installer l\'écran ?',
@@ -1320,6 +1497,9 @@ const i18n = {
     'flow.installMethod.o2':'🦶 Sur pied (support mobile, base au sol)',
     'flow.screenSize.q':'Quelles dimensions recherchez-vous ? Veuillez entrer la largeur et la hauteur de l\'écran.',
     'flow.screenSize.ph':'ex. 4m × 3m, ou 6m de large × 4m de haut',
+    'flow.screenSize.width':'Largeur (m)',
+    'flow.screenSize.height':'Hauteur (m)',
+    'flow.screenSize.snap':'Ajusté à la taille standard : {size}',
     'flow.viewingDistance.q':'Dernière question — à quelle distance votre public sera-t-il de l\'écran ? C\'est crucial pour déterminer le pas de pixel optimal.',
     'flow.viewingDistance.o1':'🔍 Très proche (< 2m) — pas ultra fin (P1.2-P1.8)',
     'flow.viewingDistance.o2':'📏 Proche (2-5m) — pas fin (P1.8-P2.5)',
@@ -1355,30 +1535,35 @@ function refreshChatLanguage(){
   const headerSpan = document.querySelector('.chat-header-info span');
   if(headerSpan) headerSpan.textContent = t('chat.online');
 
-  // If chat panel is visible and there are messages, refresh the latest bot question
   if(!document.getElementById('chatPanel').classList.contains('hidden') && chatMessages.length > 0){
     const flow = getLocalizedFlow();
-    // Re-render existing messages (they keep original content, but we refresh the current step's question)
-    // Find the last bot message that has options and replace it with current language version
     if(currentStep < flow.length){
       const step = flow[currentStep];
-      // Remove last bot message and its options, re-add with new language
-      const lastBotIdx = chatMessages.map((m,i)=>m.role==='bot'?i:-1).filter(i=>i>=0).pop();
-      if(lastBotIdx !== undefined && chatMessages[lastBotIdx].options){
+      // Refresh the bot message that belongs to the current step
+      const botIndices = chatMessages.map((m,i)=>(m.role==='bot'?i:-1)).filter(i=>i>=0);
+      const lastBotIdx = botIndices.slice().reverse().find(i=>chatMessages[i].stepId === step.id);
+      if(lastBotIdx !== undefined){
         chatMessages[lastBotIdx].content = step.question;
-        chatMessages[lastBotIdx].options = step.isCustom ? undefined : step.options;
+        chatMessages[lastBotIdx].options = step.options;
       }
       renderMessages();
-      // If there's a custom input or contact form, refresh it too
-      const customInput = document.getElementById('customInput');
-      const contactForm = document.getElementById('contactForm');
-      if(customInput){
+
+      // Refresh current input/control area based on step type
+      if(step.id === 'screenSize'){
+        const oldW = document.getElementById('screenWidth')?.value || '';
+        const oldH = document.getElementById('screenHeight')?.value || '';
+        const existing = document.getElementById('screenSizeInput');
+        if(existing) existing.remove();
+        showScreenSizeInput();
+        if(oldW) document.getElementById('screenWidth').value = oldW;
+        if(oldH) document.getElementById('screenHeight').value = oldH;
+      } else if(step.isCustom){
         const input = document.getElementById('customInputField');
-        if(input && step.isCustom) input.placeholder = step.placeholder || '';
-      }
-      if(contactForm){
-        document.getElementById('contactForm').remove();
-        if(step.isContact) showContactForm();
+        if(input && step.placeholder) input.placeholder = step.placeholder;
+      } else if(step.isContact){
+        const existing = document.getElementById('contactForm');
+        if(existing) existing.remove();
+        showContactForm();
       }
     }
     updateProgress();
@@ -1480,7 +1665,7 @@ function getLocalizedFlow(){
   return [
     {id:'scenario',question:t('flow.scenario.q'),field:'scenario',options:[t('flow.scenario.o1'),t('flow.scenario.o2')]},
     {id:'installMethod',question:t('flow.installMethod.q'),field:'installMethod',options:[t('flow.installMethod.o1'),t('flow.installMethod.o2')]},
-    {id:'screenSize',question:t('flow.screenSize.q'),field:'screenSize',isCustom:true,placeholder:t('flow.screenSize.ph')},
+    {id:'screenSize',question:t('flow.screenSize.q'),field:'screenSize',isCustom:true},
     {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')]},
     {id:'contact',question:t('flow.contact.q'),field:'contact',isContact:true},
   ];
