@@ -431,6 +431,31 @@ body{
 }
 .chat-progress-text{font-size:0.7rem;color:var(--text-muted);flex-shrink:0;font-weight:500}
 
+/* Chat input bar */
+.chat-input-bar{
+  padding:0.6rem 1.2rem;border-top:1px solid var(--border-light);
+  display:flex;gap:0.5rem;align-items:center;flex-shrink:0;
+  background:#fff;
+}
+.chat-input-bar input{
+  flex:1;padding:0.65rem 1rem;border-radius:12px;
+  border:1.5px solid var(--border);background:#fff;
+  color:var(--text);font-size:0.85rem;outline:none;
+  transition:border 0.2s;font-family:inherit;
+}
+.chat-input-bar input:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,184,148,0.1)}
+.chat-input-bar input:disabled{background:var(--bg-card);cursor:not-allowed;opacity:0.6}
+.chat-input-bar input::placeholder{color:var(--text-muted)}
+.chat-input-bar button{
+  width:40px;height:40px;border-radius:12px;border:none;
+  background:var(--brand);color:#fff;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.2s;flex-shrink:0;
+}
+.chat-input-bar button:hover{background:#00a381;transform:scale(1.05)}
+.chat-input-bar button:active{transform:scale(0.95)}
+.chat-input-bar button:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+
 /* ========== LEO MINI (left fixed, after card dismiss) ========== */
 .leo-sidebar{
   position:fixed;left:0;top:60px;z-index:249;
@@ -803,6 +828,12 @@ body{
     <div class="chat-step-badge" id="chatStepBadge">Step 1/5</div>
   </div>
   <div class="chat-messages" id="chatMessages"></div>
+  <div class="chat-input-bar" id="chatInputBar">
+    <input type="text" id="chatTextInput" placeholder="Type your message..." autocomplete="off" maxlength="500">
+    <button id="chatSendBtn" onclick="sendMessage()" title="Send">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
   <div class="chat-progress">
     <div class="chat-progress-bar">
       <div class="chat-progress-fill" id="chatProgressFill" style="width:0%"></div>
@@ -872,10 +903,77 @@ const conversationFlow = [
   {id:'contact',question:"Perfect! I now have all the technical details I need. Could you share your contact info so I can send you the tailored quote?",field:'contact',isContact:true},
 ];
 
+// ==================== AI CONFIGURATION ====================
+// 🔑 IMPORTANT: Get your free API key from Alibaba Cloud Bailian console:
+//    1. Visit https://bailian.console.aliyun.com/
+//    2. Sign up with Alipay/Alibaba Cloud account (real-name verification required)
+//    3. Open "Model Studio" service → you get 70 million free tokens
+//    4. Go to "API-KEY Management" → create a key → paste it below
+//    Model: qwen-plus (recommended, great quality & cheap)
+//    Fallback: if apiKey is empty, the old option-based chat will be used automatically
+const AI_CONFIG = {
+  apiKey: '',  // <-- PASTE YOUR API KEY HERE
+  endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  model: 'qwen-plus',
+  enabled: false,
+};
+AI_CONFIG.enabled = !!(AI_CONFIG.apiKey && AI_CONFIG.apiKey.length > 10);
+
+// ==================== LEO SYSTEM PROMPT ====================
+const SYSTEM_PROMPT = `You are Leo, a senior LED display solutions consultant at LEDOVIX, a professional LED display manufacturer based in Shenzhen, China.
+
+## Your Personality
+- Warm, approachable, and genuinely helpful — you're a real human consultant, not a robot
+- Expert-level knowledge of LED display technology (pixel pitch, brightness, IP rating, installation methods, cabinet sizes, etc.)
+- Natural conversationalist — you chat like a friendly expert, mixing casual small talk with professional questions
+- Show genuine enthusiasm when customers share project details
+- Use occasional emojis to keep it friendly (but not excessively — maybe 1-2 per message max)
+
+## Your Goal
+Through natural, flowing conversation, you need to gently collect these pieces of information from the customer:
+
+1. **Scenario** — Where will the LED screen be used? Indoor or Outdoor?
+2. **Install Method** — How will it be installed? Fixed (wall-mounted/embedded) or Floor-standing (mobile stand/base)?
+3. **Screen Size** — Width and height in meters. Standard LED cabinet is 0.5m increments.
+4. **Viewing Distance** — How far away will viewers be? Options: very-close (<2m), close (2-5m), medium (5-10m), far (10-20m), very-far (20m+)
+5. **Contact Info** — Name, email, phone number. Company name is optional.
+
+## Conversation Rules (CRITICAL)
+- **ONE QUESTION AT A TIME.** Never ask multiple questions in one message. This is the most important rule.
+- DON'T sound like you're filling a form. Weave questions naturally into conversation.
+- When the customer gives vague info, ask clarifying follow-ups gently.
+- ACKNOWLEDGE what the customer shares before moving to the next topic. Show you're listening.
+- Offer helpful LED knowledge along the way when relevant (e.g., "For outdoor use, we recommend at least IP65 waterproof rating")
+- If the customer asks something unrelated to LED displays, briefly address it then politely steer back.
+- If the customer seems unsure, give them simple examples to help them decide.
+
+## Screen Size Guidance
+- Standard LED cabinet size is 0.5m × 0.5m, so dimensions should be in 0.5m increments
+- Typical indoor displays: 2m-6m wide, 1.5m-4m high
+- Typical outdoor billboards: 4m-20m wide, 2m-10m high
+- Help customers snap approximate sizes to standard cabinet increments
+
+## Language
+- Respond in the SAME language the customer is using
+- Support: English, Spanish (Español), Portuguese (Português), and French (Français)
+- If the customer switches language mid-conversation, follow their lead
+
+## When All Info Is Collected
+- When you have collected ALL 5 pieces of information (scenario, install method, screen size, viewing distance, AND contact info), add [COLLECTION_COMPLETE] at the very end of your response.
+- Before adding this tag, briefly summarize what you've gathered and let the customer know a quote will be prepared.
+- Do NOT add this tag until EVERY piece of info is collected, including contact details.
+
+## Important
+- NEVER make up technical specifications — if unsure, say you'll confirm with the engineering team
+- NEVER ask for sensitive personal info beyond what's needed for the LED quote
+- Keep responses concise — 2-5 sentences is usually enough`;
+
 // ==================== STATE ====================
 let currentStep = 0;
 let collectedNeeds = {};
 let chatMessages = [];
+let apiMessages = [];       // Full conversation history for Qwen API
+let isAIProcessing = false; // Lock to prevent double-sends
 
 // ==================== INIT ====================
 function init(){
@@ -939,6 +1037,9 @@ function startChat(){
   currentStep = 0;
   collectedNeeds = {};
   chatMessages = [];
+  apiMessages = [];
+  fallbackActive = false;
+  isAIProcessing = false;
   document.getElementById('chatMessages').innerHTML = '';
 
   // Show leo sidebar + chat panel
@@ -952,12 +1053,51 @@ function startChat(){
   document.querySelector('.chat-header-info span').textContent = t('chat.online');
 
   updateProgress();
-  showTyping();
-  const flow = getLocalizedFlow();
-  setTimeout(()=>{
-    hideTyping();
-    addBotMessage(flow[0].question, flow[0].options, flow[0].id);
-  },1200);
+  setInputEnabled(true);
+
+  // Ensure input bar visibility matches mode
+  const inputBar = document.getElementById('chatInputBar');
+  if(inputBar) inputBar.style.display = AI_CONFIG.enabled ? '' : 'none';
+
+  if(AI_CONFIG.enabled){
+    // AI-driven mode: send initial greeting via Qwen
+    showTyping();
+    const langNames = {en:'English',es:'Spanish',pt:'Portuguese',fr:'French'};
+    const initMessages = [
+      {role:'system',content:SYSTEM_PROMPT},
+      {role:'system',content:`The user is using the ${langNames[currentLang]||'English'} interface. Start the conversation in ${langNames[currentLang]||'English'}. Greet them warmly, introduce yourself briefly as Leo from LEDOVIX, and ask the FIRST question about their project (where the LED screen will be used). Keep it natural and friendly.`},
+      {role:'user',content:'Hello'},
+    ];
+
+    let streamingBubble = null;
+    callQwenAPI(initMessages, (chunk, fullText) => {
+      if(!streamingBubble){
+        hideTyping();
+        streamingBubble = createStreamingBubble();
+      }
+      updateStreamingBubble(streamingBubble, fullText);
+    }).then(fullText => {
+      hideTyping();
+      if(streamingBubble) streamingBubble.remove();
+      apiMessages = [{role:'assistant',content:fullText}];
+      addBotMessage(fullText);
+      document.getElementById('chatTextInput').focus();
+    }).catch(() => {
+      hideTyping();
+      if(streamingBubble) streamingBubble.remove();
+      fallbackToClassicFlow();
+    });
+  } else {
+    // Classic mode
+    showTyping();
+    const flow = getLocalizedFlow();
+    setTimeout(()=>{
+      hideTyping();
+      addBotMessage(flow[0].question, flow[0].options, flow[0].id);
+      // Hide AI input bar, show options instead
+      document.getElementById('chatInputBar').style.display = 'none';
+    },1200);
+  }
 }
 
 function addBotMessage(text, options, stepId){
@@ -1001,7 +1141,8 @@ function renderMessages(){
     }
     container.appendChild(div);
 
-    if(msg.options && idx === chatMessages.length-1){
+    // Only show options in classic/fallback mode (when not using AI)
+    if(msg.options && idx === chatMessages.length-1 && !AI_CONFIG.enabled){
       const optsDiv = document.createElement('div');
       optsDiv.className = 'chat-options';
       optsDiv.style.animation = 'msgIn 0.3s ease-out 0.2s both';
@@ -1257,11 +1398,22 @@ function submitContact(){
 }
 
 function updateProgress(){
-  const flow = getLocalizedFlow();
-  const pct = Math.round(((currentStep+1)/flow.length)*100);
-  document.getElementById('chatProgressFill').style.width = pct+'%';
-  document.getElementById('chatProgressText').textContent = pct+'%';
-  document.getElementById('chatStepBadge').textContent = t('chat.step',{step:currentStep+1,total:flow.length});
+  // AI mode: progress based on collected fields
+  // Classic mode: progress based on current step
+  if(AI_CONFIG.enabled && !fallbackActive){
+    const fields = ['scenario','installMethod','screenSize','viewingDistance','name','email','phone'];
+    const collected = fields.filter(f => !!collectedNeeds[f]).length;
+    const pct = Math.round((collected / fields.length) * 100);
+    document.getElementById('chatProgressFill').style.width = pct+'%';
+    document.getElementById('chatProgressText').textContent = pct+'%';
+    document.getElementById('chatStepBadge').textContent = `${collected}/${fields.length} collected`;
+  } else {
+    const flow = getLocalizedFlow();
+    const pct = Math.round(((currentStep+1)/flow.length)*100);
+    document.getElementById('chatProgressFill').style.width = pct+'%';
+    document.getElementById('chatProgressText').textContent = pct+'%';
+    document.getElementById('chatStepBadge').textContent = t('chat.step',{step:currentStep+1,total:flow.length});
+  }
 }
 
 // ==================== SUMMARY ====================
@@ -1536,6 +1688,13 @@ function refreshChatLanguage(){
   if(headerSpan) headerSpan.textContent = t('chat.online');
 
   if(!document.getElementById('chatPanel').classList.contains('hidden') && chatMessages.length > 0){
+    // In AI mode, don't modify conversation history — AI messages stay as-is
+    if(AI_CONFIG.enabled && !fallbackActive){
+      updateProgress();
+      return;
+    }
+
+    // Classic mode: refresh bot messages from localized flow
     const flow = getLocalizedFlow();
 
     // 1) Refresh ALL historical bot messages — not just the current step
@@ -1678,6 +1837,318 @@ function getLocalizedFlow(){
     {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')]},
     {id:'contact',question:t('flow.contact.q'),field:'contact',isContact:true},
   ];
+}
+
+// ==================== AI CHAT ENGINE ====================
+
+function sendMessage(){
+  if(isAIProcessing) return;
+  const input = document.getElementById('chatTextInput');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  input.focus();
+
+  addUserMessage(text);
+
+  // If API not configured, fall back to classic option-based flow
+  if(!AI_CONFIG.enabled){
+    handleFallbackFlow(text);
+    return;
+  }
+
+  // AI flow
+  isAIProcessing = true;
+  setInputEnabled(false);
+  showTyping();
+
+  const messages = buildAPIMessages(text);
+  apiMessages.push({role:'user',content:text});
+
+  let streamingBubble = null;
+  callQwenAPI(messages, (chunk, fullText) => {
+    if(!streamingBubble){
+      hideTyping();
+      streamingBubble = createStreamingBubble();
+    }
+    updateStreamingBubble(streamingBubble, fullText);
+  }).then(fullText => {
+    hideTyping();
+    apiMessages.push({role:'assistant',content:fullText});
+    processAIResponse(fullText, streamingBubble);
+    isAIProcessing = false;
+    setInputEnabled(true);
+    document.getElementById('chatTextInput').focus();
+  }).catch(err => {
+    console.error('Qwen API error:', err);
+    hideTyping();
+    if(streamingBubble) streamingBubble.remove();
+    addBotMessage("I'm sorry, I'm having trouble connecting to my brain right now. Let me switch to our standard consultation process instead. 😊");
+    fallbackToClassicFlow();
+    isAIProcessing = false;
+    setInputEnabled(true);
+  });
+}
+
+function setInputEnabled(enabled){
+  const input = document.getElementById('chatTextInput');
+  const btn = document.getElementById('chatSendBtn');
+  if(input) input.disabled = !enabled;
+  if(btn) btn.disabled = !enabled;
+  if(!enabled){
+    if(input) input.placeholder = 'Leo is typing...';
+  } else {
+    if(input) input.placeholder = 'Type your message...';
+  }
+}
+
+function buildAPIMessages(userMessage){
+  const msgs = [{role:'system',content:SYSTEM_PROMPT}];
+
+  // Inject collected info context
+  const ctx = buildCollectedContext();
+  if(ctx){
+    msgs.push({role:'system',content:ctx});
+  }
+
+  // Add conversation history (last 20 messages to manage tokens)
+  const recent = apiMessages.slice(-20);
+  msgs.push(...recent);
+
+  // Add current user message
+  msgs.push({role:'user',content:userMessage});
+
+  return msgs;
+}
+
+function buildCollectedContext(){
+  const parts = [];
+  if(collectedNeeds.scenario) parts.push(`- Usage scenario: ${collectedNeeds.scenario}`);
+  if(collectedNeeds.installMethod) parts.push(`- Installation method: ${collectedNeeds.installMethod}`);
+  if(collectedNeeds.screenSize) parts.push(`- Screen size: ${collectedNeeds.screenSize.display}`);
+  if(collectedNeeds.viewingDistance) parts.push(`- Viewing distance: ${collectedNeeds.viewingDistance}`);
+  if(collectedNeeds.name) parts.push(`- Customer name: ${collectedNeeds.name}`);
+  if(collectedNeeds.email) parts.push(`- Email: ${collectedNeeds.email}`);
+  if(collectedNeeds.phone) parts.push(`- Phone: ${collectedNeeds.phone}`);
+  if(collectedNeeds.company) parts.push(`- Company: ${collectedNeeds.company}`);
+
+  if(parts.length === 0) return null;
+
+  const remaining = [];
+  if(!collectedNeeds.scenario) remaining.push('scenario (indoor/outdoor)');
+  if(!collectedNeeds.installMethod) remaining.push('install method (fixed/floor-standing)');
+  if(!collectedNeeds.screenSize) remaining.push('screen size (width × height in meters)');
+  if(!collectedNeeds.viewingDistance) remaining.push('viewing distance');
+  if(!collectedNeeds.name) remaining.push('customer name');
+  if(!collectedNeeds.email) remaining.push('email');
+  if(!collectedNeeds.phone) remaining.push('phone number');
+
+  return `Information ALREADY collected from this customer (DO NOT ask about these again):
+${parts.join('\n')}
+
+Still NEED to collect: ${remaining.join(', ') || 'ALL COLLECTED — ask for confirmation and add [COLLECTION_COMPLETE]'}`;
+}
+
+async function callQwenAPI(messages, onChunk){
+  const response = await fetch(AI_CONFIG.endpoint, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization':`Bearer ${AI_CONFIG.apiKey}`,
+    },
+    body:JSON.stringify({
+      model:AI_CONFIG.model,
+      messages:messages,
+      stream:true,
+      temperature:0.7,
+      max_tokens:800,
+    }),
+    signal:AbortSignal.timeout(30000),
+  });
+
+  if(!response.ok){
+    const errText = await response.text();
+    throw new Error(`API ${response.status}: ${errText.substring(0,200)}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let buffer = '';
+
+  while(true){
+    const {done, value} = await reader.read();
+    if(done) break;
+
+    buffer += decoder.decode(value, {stream:true});
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for(const line of lines){
+      const trimmed = line.trim();
+      if(!trimmed || !trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if(data === '[DONE]') continue;
+
+      try{
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content;
+        if(content){
+          fullText += content;
+          if(onChunk) onChunk(content, fullText);
+        }
+      }catch(e){/* skip unparseable chunks */}
+    }
+  }
+
+  return fullText;
+}
+
+function createStreamingBubble(){
+  const container = document.getElementById('chatMessages');
+  const typing = document.getElementById('typingIndicator');
+  if(typing) typing.remove();
+
+  const div = document.createElement('div');
+  div.className = 'chat-msg bot';
+  div.style.animation = 'msgIn 0.3s ease-out both';
+  div.innerHTML = `<div class="chat-msg-bot-avatar"><img src="leo.jpg" alt="Leo"></div><div class="chat-msg-bubble" id="streamingBubble"></div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return document.getElementById('streamingBubble');
+}
+
+function updateStreamingBubble(bubble, text){
+  bubble.innerHTML = text.replace(/\n/g,'<br>');
+  const container = document.getElementById('chatMessages');
+  container.scrollTop = container.scrollHeight;
+}
+
+function processAIResponse(fullText, streamingBubble){
+  // Check for completion marker
+  if(fullText.includes('[COLLECTION_COMPLETE]')){
+    // Clean the marker from display text
+    const cleanText = fullText.replace(/\[COLLECTION_COMPLETE\]/g,'').trim();
+    if(streamingBubble){
+      streamingBubble.innerHTML = cleanText.replace(/\n/g,'<br>');
+    }
+
+    // Extract structured data
+    extractStructuredData().then(() => {
+      updateProgress();
+      setTimeout(() => {
+        showSummary();
+      }, 1500);
+    });
+  } else {
+    // Finalize the streaming bubble into a normal bot message
+    if(streamingBubble){
+      // Already rendered, just keep it
+      const container = document.getElementById('chatMessages');
+      container.scrollTop = container.scrollHeight;
+    }
+    updateProgress();
+  }
+}
+
+async function extractStructuredData(){
+  const extractionMsg = {
+    role:'user',
+    content:`Based on our entire conversation above, extract the following customer information as a clean JSON object. Only include fields that were actually discussed. Use null for missing fields.
+
+{
+  "scenario": "Indoor" or "Outdoor" or null,
+  "installMethod": "Fixed" or "Floor-standing" or null,
+  "screenSize": {"width": number_in_meters, "height": number_in_meters} or null,
+  "viewingDistance": "very-close" or "close" or "medium" or "far" or "very-far" or null,
+  "name": string or null,
+  "email": string or null,
+  "phone": string or null,
+  "company": string or null
+}
+
+Reply with ONLY the JSON object, no markdown, no other text.`
+  };
+
+  const messages = [
+    {role:'system',content:'You are a data extraction assistant. Reply ONLY with valid JSON. No markdown, no explanation.'},
+    ...apiMessages.slice(-30),
+    extractionMsg,
+  ];
+
+  try{
+    const response = await callQwenAPI(messages, null);
+    // Extract JSON from response
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if(jsonMatch){
+      const data = JSON.parse(jsonMatch[0]);
+      if(data.scenario) collectedNeeds.scenario = data.scenario;
+      if(data.installMethod) collectedNeeds.installMethod = data.installMethod;
+      if(data.screenSize && data.screenSize.width && data.screenSize.height){
+        const w = snapSize(data.screenSize.width);
+        const h = snapSize(data.screenSize.height);
+        collectedNeeds.screenSize = {width:w, height:h, display:formatSize(w,h)};
+      }
+      if(data.viewingDistance) collectedNeeds.viewingDistance = data.viewingDistance;
+      if(data.name) collectedNeeds.name = data.name;
+      if(data.email) collectedNeeds.email = data.email;
+      if(data.phone) collectedNeeds.phone = data.phone;
+      if(data.company) collectedNeeds.company = data.company;
+    }
+  }catch(e){
+    console.error('Failed to extract structured data:', e);
+  }
+}
+
+// Fallback: when API is not available, use classic option-based flow
+let fallbackActive = false;
+function fallbackToClassicFlow(){
+  fallbackActive = true;
+  currentStep = 0;
+  collectedNeeds = {};
+  chatMessages = [];
+  document.getElementById('chatMessages').innerHTML = '';
+  const inputBar = document.getElementById('chatInputBar');
+  if(inputBar) inputBar.style.display = 'none';
+  const flow = getLocalizedFlow();
+  showTyping();
+  setTimeout(()=>{
+    hideTyping();
+    addBotMessage(flow[0].question, flow[0].options, flow[0].id);
+    updateProgress();
+  },800);
+}
+
+function handleFallbackFlow(userText){
+  // In classic flow, we check if user input matches any option
+  const flow = getLocalizedFlow();
+  if(currentStep >= flow.length) return;
+
+  const step = flow[currentStep];
+  if(step.isCustom){
+    // Custom input step - just record the value
+    collectedNeeds[step.field] = userText;
+    advanceConversation();
+    return;
+  }
+  if(step.isContact){
+    // Contact step - try to parse contact info
+    collectedNeeds[step.field] = userText;
+    advanceConversation();
+    return;
+  }
+  // Option step - find best match
+  if(step.options){
+    const lower = userText.toLowerCase();
+    const match = step.options.find(o => o.toLowerCase().includes(lower) || lower.includes(o.toLowerCase().split(' ')[0]));
+    if(match){
+      addUserMessage(match);
+      collectedNeeds[step.field] = match;
+      advanceConversation();
+    } else {
+      addBotMessage("I didn't quite catch that. Please pick one of the options below:", step.options, step.id);
+    }
+  }
 }
 
 // ==================== START ====================
