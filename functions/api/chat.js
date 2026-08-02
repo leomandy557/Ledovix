@@ -1,4 +1,5 @@
 // Cloudflare Pages Function — secure proxy to Alibaba Cloud DashScope (Qwen)
+// Triggered deploy: ensure env vars are picked up by Pages Functions runtime.
 //
 // WHY THIS EXISTS:
 //   The LEDOVIX frontend (static HTML/JS) cannot safely hold the DashScope API key,
