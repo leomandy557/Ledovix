@@ -1537,18 +1537,27 @@ function refreshChatLanguage(){
 
   if(!document.getElementById('chatPanel').classList.contains('hidden') && chatMessages.length > 0){
     const flow = getLocalizedFlow();
+
+    // 1) Refresh ALL historical bot messages — not just the current step
+    chatMessages.forEach(msg => {
+      if(msg.role !== 'bot' || !msg.stepId) return;
+      const step = flow.find(s => s.id === msg.stepId);
+      if(step){
+        msg.content = step.question;
+        if(step.options) msg.options = step.options;
+      }
+    });
+    // Also refresh the final "complete" message (no stepId)
+    chatMessages.forEach(msg => {
+      if(msg.role === 'bot' && !msg.stepId && msg.content.indexOf('LED') > -1){
+        msg.content = t('flow.complete');
+      }
+    });
+    renderMessages();
+
+    // 2) Rebuild the CURRENT step's input/control area
     if(currentStep < flow.length){
       const step = flow[currentStep];
-      // Refresh the bot message that belongs to the current step
-      const botIndices = chatMessages.map((m,i)=>(m.role==='bot'?i:-1)).filter(i=>i>=0);
-      const lastBotIdx = botIndices.slice().reverse().find(i=>chatMessages[i].stepId === step.id);
-      if(lastBotIdx !== undefined){
-        chatMessages[lastBotIdx].content = step.question;
-        chatMessages[lastBotIdx].options = step.options;
-      }
-      renderMessages();
-
-      // Refresh current input/control area based on step type
       if(step.id === 'screenSize'){
         const oldW = document.getElementById('screenWidth')?.value || '';
         const oldH = document.getElementById('screenHeight')?.value || '';
