@@ -472,7 +472,8 @@ function specOf(t, sel, W, H, units) {
     cols: cols, rows: rows, unitCount: cols * rows, unit: u,
     pxW: pxW, pxH: pxH, totalPx: pxW * pxH,
     maxKW: area * maxWsqm / 1000, avgKW: area * avgWsqm / 1000,
-    minViewDist: Math.round((m.pitch || 1) * 10) / 10
+    minViewDist: Math.round((m.pitch || 1) * 10) / 10,
+    brightness: t.id === 'rental' ? '4500 cd/m² (峰值)' : (t.brightness_hint || null)
   };
 }
 

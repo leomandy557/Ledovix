@@ -295,8 +295,8 @@ function computeQuote(DB, rec, opts) {
       rmb(perSqm) + '/㎡', area, perSqm);
   }
 
-  /* 10) spare */
-  if (use.spare) push('备品备件 / Spare parts', (R.spare_ratio_default * 100).toFixed(0) + '% × 屏体 / screen body', 1, screenAmt * R.spare_ratio_default);
+  /* 10) spare — 5% of screen body price (modules + PSU + cards, excl. cabinet frame) */
+  if (use.spare) push('备品备件 · 模组/电源/接收卡 / Spare parts', '5% × 屏体 / screen body', 1, screenAmt * 0.05);
 
   /* 11) outdoor small area surcharge */
   if (t.env === 'outdoor' && !poster) {
@@ -324,7 +324,8 @@ function computeQuote(DB, rec, opts) {
       W: W, H: H, area: area, cols: cols, rows: rows, unitCount: unitCount,
       unitKind: u.kind, unitW: u.w, unitH: u.h, cabSize: cabSize,
       pxW: pxW, pxH: pxH, totalPx: totalPx, cabinetCount: cabinetCount, moduleCount: moduleCount,
-      maxKW: Math.round(maxKW * 100) / 100, avgKW: Math.round((avgW / 1000) * 100) / 100
+      maxKW: Math.round(maxKW * 100) / 100, avgKW: Math.round((avgW / 1000) * 100) / 100,
+      brightness: t.id === 'rental' ? '4500 cd/m² (峰值)' : (t.brightness_hint || null)
     },
     ctrl: { recv: recv, recvCount: recvCount, send: send, sendCount: sendCount, psu: psu, psuCount: psuCount, pbox: pbox, install: ins }
   };

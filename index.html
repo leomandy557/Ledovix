@@ -1208,7 +1208,7 @@ function startChat(){
   // Hybrid mode: show a FIXED greeting (no API call -> saves cost) and then the
   // first option question. The option quick-replies stay available at the bottom
   // of the chat, while the input bar lets customers also chat with Leo freely.
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   addBotMessage(LEO_GREETING[currentLang] || LEO_GREETING.en);
   addBotMessage(flow[0].question, flow[0].options, flow[0].id);
   currentStep = 0;
@@ -1265,7 +1265,7 @@ function renderMessages(){
   // Sticky quick-reply options for the CURRENT step (hybrid primary path).
   // Hidden while a typing indicator is showing, to avoid a flash of stale options.
   if(!typing){
-    const flow = getLocalizedFlow();
+    const flow = getActiveFlow();
     if(currentStep < flow.length){
       const step = flow[currentStep];
       if(step && step.options && !step.isContact && !step.isCustom){
@@ -1289,7 +1289,7 @@ function renderMessages(){
 }
 
 function handleOptionClick(option){
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   const step = flow[currentStep];
   addUserMessage(option);
   if(step.field) collectedNeeds[step.field] = option;
@@ -1315,7 +1315,7 @@ function submitCustomInput(){
   const val = f.value.trim();
   document.getElementById('customInput').remove();
   addUserMessage(val);
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   if(flow[currentStep].field) collectedNeeds[flow[currentStep].field] = val;
   advanceConversation();
 }
@@ -1402,7 +1402,7 @@ function submitScreenSize(){
 }
 
 function advanceConversation(){
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   const nextStep = currentStep + 1;
   if(nextStep >= flow.length){
     showTyping();
@@ -1527,7 +1527,7 @@ function submitContact(){
 function updateProgress(){
   // Hybrid mode: options are primary; progress tracks current step in the flow.
   // (AI free-text is supplementary, so we always show step-based progress.)
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   const pct = Math.round(((currentStep+1)/flow.length)*100);
   document.getElementById('chatProgressFill').style.width = pct+'%';
   document.getElementById('chatProgressText').textContent = pct+'%';
@@ -1660,6 +1660,10 @@ const i18n = {
     'contact.errors.phoneInvalid':'Please enter a valid phone number.',
     'flow.scenario.q':"Where will this screen be used?",
     'flow.scenario.o1':'🏢 Indoor','flow.scenario.o2':'🌤️ Outdoor',
+    'flow.screenType.q':'Got it. What type of LED display are you looking for?',
+    'flow.screenType.o1':'📺 Fixed installation (wall-mounted, embedded)',
+    'flow.screenType.o2':'🎪 Rental / Staging (quick setup, frequent teardown)',
+    'flow.screenType.o3':'🏟️ Outdoor billboard / Large signage',
     'flow.installMethod.q':'Great. How do you plan to install the display?',
     'flow.installMethod.o1':'🔩 Fixed installation (wall-mounted, embedded)',
     'flow.installMethod.o2':'🦶 Floor-standing (mobile stand, ground support)',
@@ -1708,7 +1712,7 @@ const i18n = {
     'contact.errors.phoneRequired':'El teléfono es obligatorio.',
     'contact.errors.phoneInvalid':'Por favor ingresa un número de teléfono válido.',
     'flow.scenario.q':'¿Dónde se usará esta pantalla?',
-    'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior',
+    'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior','flow.screenType.q':'Entendido. ¿Qué tipo de pantalla LED buscas?','flow.screenType.o1':'📺 Instalación fija (montaje en pared, empotrado)','flow.screenType.o2':'🎪 Alquiler / Escenario (montaje rápido, desmontaje frecuente)','flow.screenType.o3':'🏟️ Valla publicitaria exterior / Gran cartel',
     'flow.installMethod.q':'Genial. ¿Cómo planeas instalar la pantalla?',
     'flow.installMethod.o1':'🔩 Instalación fija (montaje en pared, empotrado)',
     'flow.installMethod.o2':'🦶 De pie (soporte móvil, base en el suelo)',
@@ -1757,7 +1761,7 @@ const i18n = {
     'contact.errors.phoneRequired':'O telefone é obrigatório.',
     'contact.errors.phoneInvalid':'Por favor, insira um telefone válido.',
     'flow.scenario.q':'Onde esta tela será usada?',
-    'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior',
+    'flow.scenario.o1':'🏢 Interior','flow.scenario.o2':'🌤️ Exterior','flow.screenType.q':'Entendi. Que tipo de tela LED você procura?','flow.screenType.o1':'📺 Instalação fixa (montagem na parede, embutida)','flow.screenType.o2':'🎪 Aluguel / Palco (montagem rápida, desmontagem frequente)','flow.screenType.o3':'🏟️ Painel publicitário externo / Grande letreiro',
     'flow.installMethod.q':'Ótimo. Como você planeja instalar o painel?',
     'flow.installMethod.o1':'🔩 Instalação fixa (montagem na parede, embutido)',
     'flow.installMethod.o2':'🦶 De chão (suporte móvel, base no solo)',
@@ -1806,7 +1810,7 @@ const i18n = {
     'contact.errors.phoneRequired':'Le téléphone est requis.',
     'contact.errors.phoneInvalid':'Veuillez saisir un numéro de téléphone valide.',
     'flow.scenario.q':'Où cet écran sera-t-il installé ?',
-    'flow.scenario.o1':'🏢 Intérieur','flow.scenario.o2':'🌤️ Extérieur',
+    'flow.scenario.o1':'🏢 Intérieur','flow.scenario.o2':'🌤️ Extérieur','flow.screenType.q':'Compris. Quel type d\'écran LED recherchez-vous ?','flow.screenType.o1':'📺 Installation fixe (montage mural, encastré)','flow.screenType.o2':'🎪 Location / Scène (montage rapide, démontage fréquent)','flow.screenType.o3':'🏟️ Panneau d\'affichage extérieur / Grande enseigne',
     'flow.installMethod.q':'Très bien. Comment prévoyez-vous d\'installer l\'écran ?',
     'flow.installMethod.o1':'🔩 Installation fixe (montage mural, encastré)',
     'flow.installMethod.o2':'🦶 Sur pied (support mobile, base au sol)',
@@ -1862,7 +1866,7 @@ function refreshChatLanguage(){
     }
 
     // Classic mode: refresh bot messages from localized flow
-    const flow = getLocalizedFlow();
+    const flow = getActiveFlow();
 
     // 1) Refresh ALL historical bot messages — not just the current step
     chatMessages.forEach(msg => {
@@ -1997,13 +2001,42 @@ function applyTranslations(){
 
 // Update conversationFlow dynamically based on language
 function getLocalizedFlow(){
+  // Complete flow definition — some steps are conditionally skipped based on scenario.
+  // skipIf is evaluated against collectedNeeds.scenario after step 0 is answered.
   return [
     {id:'scenario',question:t('flow.scenario.q'),field:'scenario',options:[t('flow.scenario.o1'),t('flow.scenario.o2')]},
-    {id:'installMethod',question:t('flow.installMethod.q'),field:'installMethod',options:[t('flow.installMethod.o1'),t('flow.installMethod.o2')]},
+    {id:'screenType',question:t('flow.screenType.q'),field:'screenType',options:[t('flow.screenType.o1'),t('flow.screenType.o2'),t('flow.screenType.o3')]},
+    {id:'installMethod',question:t('flow.installMethod.q'),field:'installMethod',options:[t('flow.installMethod.o1'),t('flow.installMethod.o2')],skipIf:function(){return isRentalScenario();}},
     {id:'screenSize',question:t('flow.screenSize.q'),field:'screenSize',isCustom:true},
-    {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')]},
+    {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')],skipIf:function(){return isOutdoorBillboard();}},
     {id:'contact',question:t('flow.contact.q'),field:'contact',isContact:true},
   ];
+}
+
+// Scenario helpers — used by skipIf conditions
+function isRentalScenario(){
+  var s = (collectedNeeds.scenario || '').toLowerCase();
+  var t = (collectedNeeds.screenType || '').toLowerCase();
+  return /rental|租赁|舞台|演出|活动|event|concert|stage|festival|touring|roadshow/i.test(s+t);
+}
+function isOutdoorBillboard(){
+  var s = (collectedNeeds.scenario || '').toLowerCase();
+  var t = (collectedNeeds.screenType || '').toLowerCase();
+  return /outdoor|户外|室外|广告|billboard/i.test(s+t) && !/rental|租赁|舞台|演出|活动|event/i.test(s+t);
+}
+
+// Return only the steps that should be shown given the current collected needs.
+function getActiveFlow(){
+  var all = getLocalizedFlow();
+  return all.filter(function(step){
+    if(typeof step.skipIf === 'function') return !step.skipIf();
+    return true;
+  });
+}
+
+// Find the next non-skipped step index in the active flow.
+function getNextActiveStepIdx(currentActiveIdx){
+  return currentActiveIdx + 1;  // already filtered by getActiveFlow
 }
 
 // ==================== AI CHAT ENGINE ====================
@@ -2279,7 +2312,7 @@ function fallbackToClassicFlow(){
   chatMessages = [];
   document.getElementById('chatMessages').innerHTML = '';
   // Keep the input bar visible — hybrid mode always has free-text available
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   showTyping();
   setTimeout(()=>{
     hideTyping();
@@ -2291,7 +2324,7 @@ function fallbackToClassicFlow(){
 
 function handleFallbackFlow(userText){
   // In classic flow, we check if user input matches any option
-  const flow = getLocalizedFlow();
+  const flow = getActiveFlow();
   if(currentStep >= flow.length) return;
 
   const step = flow[currentStep];

@@ -17,11 +17,28 @@
 var DB = function () { return (typeof window !== 'undefined' && window.__CATALOG__) || null; };
 
 /* ---- scenario / install / distance mapping (chat -> backend) ---- */
-function mapScenario(text) {
-  if (/outdoor|户外|室外/i.test(text)) return { env: 'outdoor', scene: 'outdoor_fixed' };
+function mapScenario(scenarioText, screenTypeText) {
+  // screenType overrides scenario when it gives more specific info
+  var st = (screenTypeText || '').toLowerCase();
+  var sc = (scenarioText || '').toLowerCase();
+  var env = /outdoor|户外|室外/i.test(sc + st) ? 'outdoor' : 'indoor';
+
+  if (/rental|租赁|舞台|演出|活动|event|concert|stage|festival|touring|roadshow|quick setup|teardown/i.test(st)) {
+    return { env: env, scene: 'rental' };
+  }
+  if (/billboard|广告|signage|大屏|outdoor.*fixed|fixed.*outdoor/i.test(st)) {
+    return { env: 'outdoor', scene: 'outdoor_fixed' };
+  }
+  if (/outdoor|户外|室外/i.test(sc)) {
+    return { env: 'outdoor', scene: 'outdoor_fixed' };
+  }
+  // Default: indoor fixed (could be conference, retail, etc.)
+  if (/indoor|室内/i.test(sc)) return { env: 'indoor', scene: 'indoor_fixed' };
   return { env: 'indoor', scene: 'indoor_fixed' };
 }
-function mapInstall(scenarioEnv, text) {
+function mapInstall(scenarioEnv, screenType, text) {
+  // Rental screens are always floor-standing / mobile
+  if (/rental|租赁|舞台|演出|活动|event|concert|stage/i.test((screenType||'') + (text||''))) return '落地移动支架';
   var floor = /floor|落地|移动|支架|ground|mobile|stand/i.test(text);
   if (scenarioEnv === 'outdoor') return floor ? '落地+斜撑' : '挂墙后维护';
   return floor ? '落地移动支架' : '挂墙';
@@ -44,15 +61,16 @@ function mapDistance(text) {
    us steer scene / size / distance / install precisely. ---- */
 function buildNeedFromCollected(needs) {
   needs = needs || {};
-  var sc = mapScenario(needs.scenario || '');
+  var sc = mapScenario(needs.scenario || '', needs.screenType || '');
   var env = sc.env, scene = sc.scene;
   var size = needs.screenSize;
   var w = (size && size.width) ? parseFloat(size.width) : null;
   var h = (size && size.height) ? parseFloat(size.height) : null;
   var dist = mapDistance(needs.viewingDistance || '');
-  var installHint = mapInstall(env, needs.installMethod || '');
+  var installHint = mapInstall(env, needs.screenType || '', needs.installMethod || '');
 
   var raw = 'Customer request: ' + env + ' LED display. '
+    + 'Type: ' + (needs.screenType || 'fixed') + '. '
     + 'Installation: ' + (needs.installMethod || 'n/a') + '. '
     + (w && h ? ('Target size ' + w + ' x ' + h + ' m. ') : '')
     + (dist ? ('Viewing distance about ' + dist + ' m. ') : '')
