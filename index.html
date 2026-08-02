@@ -640,6 +640,52 @@ body{
   .section-title{font-size:1.6rem}
   .card-modal{width:calc(100vw - 2rem)}
 }
+
+/* ===== Backend quote section ===== */
+.quote-section{
+  margin:1.1rem 0 .4rem;
+  border:1px solid var(--border,#e6e8ee);
+  border-radius:14px;
+  background:linear-gradient(180deg,#fbfcff 0%,#f4f7fb 100%);
+  overflow:hidden;
+}
+.quote-title{
+  margin:0;
+  padding:.75rem 1rem;
+  font-size:1rem;
+  font-weight:700;
+  color:var(--primary,#2b5cff);
+  background:rgba(43,92,255,.06);
+  border-bottom:1px solid var(--border,#e6e8ee);
+}
+.quote-body{padding:.9rem 1rem 1.1rem;}
+.quote-loading{display:flex;align-items:center;gap:.6rem;color:#6b7280;font-size:.92rem;}
+.quote-spinner{
+  width:16px;height:16px;border-radius:50%;
+  border:2px solid #c9d2e3;border-top-color:var(--primary,#2b5cff);
+  animation:quoteSpin .8s linear infinite;flex:0 0 auto;
+}
+@keyframes quoteSpin{to{transform:rotate(360deg)}}
+.quote-pre{
+  margin:0;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  font-size:.82rem;
+  line-height:1.5;
+  color:#1f2937;
+  max-height:360px;
+  overflow:auto;
+  background:#fff;
+  border:1px solid #eef1f6;
+  border-radius:10px;
+  padding:.8rem .9rem;
+}
+.quote-note{
+  font-size:.9rem;color:#6b7280;line-height:1.5;
+  background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:.7rem .85rem;
+}
+.quote-note.warn{background:#fef2f2;border-color:#fecaca;color:#991b1b;}
 </style>
 </head>
 <body>
@@ -852,11 +898,32 @@ body{
     </div>
   </div>
   <div class="summary-body" id="summaryBody"></div>
+
+  <!-- ===== Backend-generated quote (led-configurator) ===== -->
+  <div class="quote-section" id="quoteSection">
+    <h5 class="quote-title" id="quoteTitle">💰 Your Instant Quote</h5>
+    <div class="quote-body" id="quoteBody">
+      <div class="quote-loading"><span class="quote-spinner"></span><span id="quoteLoadingText">Our engine is configuring your LED display…</span></div>
+    </div>
+  </div>
+
   <button class="summary-reset" onclick="resetAll()">← Start New Consultation</button>
 </div>
 
 <!-- ========== MOBILE FAB ========== -->
 <button class="mobile-fab" id="mobileFab" onclick="openChat()">💬 Start Chat</button>
+
+<!-- ============ LEDOVIX BACKEND (led-configurator brain) ============
+     Reuses the backend system's database + selection + pricing logic.
+     catalog.js  -> window.__CATALOG__  (product + price database)
+     recommend.js-> window.LEDRecommend (requirement -> configuration)
+     quoteEngine.js -> window.QuoteEngine (configuration -> price quote)
+     backend.js  -> window.generateQuote(needs) (chat needs -> text quote)
+     Loaded before the main app script so they are ready when Leo finishes. -->
+<script src="backend/catalog.js"></script>
+<script src="backend/recommend.js"></script>
+<script src="backend/quoteEngine.js"></script>
+<script src="backend/backend.js"></script>
 
 <script>
 // ==================== DATA ====================
@@ -1449,6 +1516,43 @@ function showSummary(){
 
   html += '<div class="summary-notice">'+t('summary.notice')+'</div>';
   document.getElementById('summaryBody').innerHTML = html;
+
+  // Generate the quote via the backend brain (led-configurator)
+  renderBackendQuote();
+}
+
+/* ============================================================
+   BACKEND QUOTE  (calls led-configurator: db + selection + pricing)
+   ============================================================ */
+function renderBackendQuote(){
+  var box = document.getElementById('quoteBody');
+  var title = document.getElementById('quoteTitle');
+  if(typeof window.generateQuote !== 'function'){
+    if(title) title.textContent = '📄 Quote';
+    box.innerHTML = '<div class="quote-note warn">Quote engine not loaded in this build. Our team will prepare it manually.</div>';
+    return;
+  }
+  if(title) title.textContent = '💰 ' + t('quote.title');
+  box.innerHTML = '<div class="quote-loading"><span class="quote-spinner"></span><span>'+t('quote.loading')+'</span></div>';
+
+  // tiny delay so the loading state paints before the (synchronous) compute
+  setTimeout(function(){
+    try {
+      var res = window.generateQuote(collectedNeeds, { lang: currentLang });
+      if(!res || !res.ok){
+        box.innerHTML = '<div class="quote-note warn">⚠️ ' + (res && res.error ? res.error : 'Quote generation failed.') +
+          '<br>' + t('quote.fallback') + '</div>';
+        return;
+      }
+      var pre = document.createElement('pre');
+      pre.className = 'quote-pre';
+      pre.textContent = res.text;
+      box.innerHTML = '';
+      box.appendChild(pre);
+    } catch(e){
+      box.innerHTML = '<div class="quote-note warn">⚠️ ' + String(e && e.message || e) + '<br>' + t('quote.fallback') + '</div>';
+    }
+  }, 350);
 }
 
 // ==================== RESET ====================
@@ -1490,6 +1594,8 @@ const i18n = {
     'summary.requirements':'📋 Customer Requirements','summary.contact':'📞 Contact Info',
     'summary.notice':'⚡ The quote will be generated and sent to your email. Our team will follow up within 24 hours.',
     'summary.reset':'← Start New Consultation',
+    'quote.title':'Your Instant Quote','quote.loading':'Our engine is configuring your LED display…',
+    'quote.fallback':'Our team will prepare a detailed quote and email it to you.',
     'chat.online':'Online · LED Consultant','chat.step':'Step {step}/{total}',
     'contact.name':'Your Name *','contact.email':'Email Address *','contact.phone':'Phone Number *','contact.company':'Company Name',
     'contact.submit':'Submit & Get Quote →',
@@ -1537,6 +1643,8 @@ const i18n = {
     'summary.requirements':'📋 Requisitos del Cliente','summary.contact':'📞 Información de Contacto',
     'summary.notice':'⚡ La cotización será generada y enviada a tu correo. Nuestro equipo te contactará en 24 horas.',
     'summary.reset':'← Nueva Consulta',
+    'quote.title':'Tu Cotización Instantánea','quote.loading':'Nuestro motor está configurando tu pantalla LED…',
+    'quote.fallback':'Nuestro equipo preparará un presupuesto detallado y te lo enviará por correo.',
     'chat.online':'En línea · Consultor LED','chat.step':'Paso {step}/{total}',
     'contact.name':'Tu Nombre *','contact.email':'Correo Electrónico *','contact.phone':'Teléfono *','contact.company':'Empresa',
     'contact.submit':'Enviar y Obtener Cotización →',
@@ -1584,6 +1692,8 @@ const i18n = {
     'summary.requirements':'📋 Requisitos do Cliente','summary.contact':'📞 Informações de Contato',
     'summary.notice':'⚡ O orçamento será gerado e enviado para seu e-mail. Nossa equipe fará o acompanhamento em 24 horas.',
     'summary.reset':'← Nova Consulta',
+    'quote.title':'Sua Cotação Instantânea','quote.loading':'Nosso motor está configurando seu painel LED…',
+    'quote.fallback':'Nossa equipe preparará uma cotação detalhada e enviará por e-mail.',
     'chat.online':'Online · Consultor LED','chat.step':'Passo {step}/{total}',
     'contact.name':'Seu Nome *','contact.email':'E-mail *','contact.phone':'Telefone *','contact.company':'Empresa',
     'contact.submit':'Enviar e Receber Orçamento →',
@@ -1631,6 +1741,8 @@ const i18n = {
     'summary.requirements':'📋 Exigences du Client','summary.contact':'📞 Coordonnées',
     'summary.notice':'⚡ Le devis sera généré et envoyé à votre e-mail. Notre équipe vous contactera sous 24 heures.',
     'summary.reset':'← Nouvelle Consultation',
+    'quote.title':'Votre Devis Instantané','quote.loading':'Notre moteur configure votre écran LED…',
+    'quote.fallback':'Notre équipe préparera un devis détaillé et vous l’enverra par e-mail.',
     'chat.online':'En ligne · Consultant LED','chat.step':'Étape {step}/{total}',
     'contact.name':'Votre Nom *','contact.email':'Adresse E-mail *','contact.phone':'Téléphone *','contact.company':'Entreprise',
     'contact.submit':'Envoyer et Recevoir le Devis →',
