@@ -9,7 +9,7 @@
 // DEPLOY:
 //   1. This file auto-deploys with the Pages site (no extra setup needed).
 //   2. In Cloudflare Dashboard → Pages project → Settings → Environment variables,
-//      add:  DASHSCOPE_API_KEY = sk-ws-xxxx  (set for BOTH Production and Preview)
+//      add:  DASHSCOPE_API_KEY = <your_real_key_here>  (set for BOTH Production and Preview)
 //
 // The frontend calls same-origin "/api/chat" — no CORS, no exposed key.
 

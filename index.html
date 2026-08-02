@@ -1138,8 +1138,8 @@ function renderMessages(){
     }
     container.appendChild(div);
 
-    // Only show options in classic/fallback mode (when not using AI)
-    if(msg.options && idx === chatMessages.length-1 && !AI_CONFIG.enabled){
+    // Show options only in classic mode or fallback mode (not in live AI mode)
+    if(msg.options && idx === chatMessages.length-1 && (!AI_CONFIG.enabled || fallbackActive)){
       const optsDiv = document.createElement('div');
       optsDiv.className = 'chat-options';
       optsDiv.style.animation = 'msgIn 0.3s ease-out 0.2s both';
