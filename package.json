@@ -1,0 +1,14 @@
+{
+  "name": "ledovix",
+  "version": "1.1.0",
+  "private": true,
+  "description": "LEDOVIX LED display quote site with AI chat (Leo) and auto lead-email Cloudflare Pages Functions",
+  "type": "module",
+  "scripts": {
+    "build": "echo \"static site; no build step required\"",
+    "pages:deploy": "echo \"deploy via Cloudflare Pages Git integration\""
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
+}

@@ -1603,10 +1603,54 @@ function renderBackendQuote(){
       pre.textContent = res.text;
       box.innerHTML = '';
       box.appendChild(pre);
+
+      // Auto-notify the sales team (Leo) by email — fire-and-forget.
+      // Never block the user from seeing their quote.
+      var leadStatus = document.createElement('div');
+      leadStatus.className = 'quote-note';
+      leadStatus.style.marginTop = '0.75rem';
+      leadStatus.textContent = '📧 Sending a copy of this quote to our team…';
+      box.appendChild(leadStatus);
+      notifyLead(res, leadStatus);
     } catch(e){
       box.innerHTML = '<div class="quote-note warn">⚠️ ' + String(e && e.message || e) + '<br>' + t('quote.fallback') + '</div>';
     }
   }, 350);
+}
+
+/* ============================================================
+   AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
+   ============================================================ */
+function notifyLead(res, statusEl){
+  try {
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        needs: collectedNeeds,
+        quoteText: res.text,
+        quote: {
+          total: res.quote && res.quote.total,
+          usd: res.quote && res.quote.usd,
+          perSqm: res.quote && res.quote.perSqm
+        }
+      })
+    })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (o) {
+      if (!statusEl) return;
+      if (o.ok && o.j && o.j.ok) {
+        statusEl.textContent = '✅ A copy of this quote has been sent to our team for review.';
+      } else {
+        statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
+      }
+    })
+    .catch(function () {
+      if (statusEl) statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
+  }
 }
 
 // ==================== RESET ====================
