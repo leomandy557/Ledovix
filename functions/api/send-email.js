@@ -16,12 +16,21 @@
 //   QQ_SMTP_PASS  : QQ mail "授权码" (authorization code) — NOT the login password
 //   REVIEW_EMAIL  : recipient inbox, e.g. leo@ledovix.com
 //
-// COMPATIBILITY FLAG (required!):
+// DEPENDENCY NOTE (important — Cloudflare Pages gotcha):
+//   Cloudflare Pages Functions does NOT run `npm install` before bundling, so an
+//   npm package like `worker-mailer` cannot be resolved at build time and the
+//   deploy fails with "Could not resolve 'worker-mailer'". To avoid that, the
+//   worker-mailer source is inlined into the sibling file `_wm.js` (files
+//   starting with `_` are not treated as route handlers). This file only depends
+//   on the Cloudflare built-in `cloudflare:sockets`, which the bundler always
+//   externalizes, so the build succeeds with zero npm dependencies.
+//
+// COMPATIBILITY FLAG (still required):
 //   Settings -> Functions -> Compatibility flags -> add `nodejs_compat`.
-//   worker-mailer uses Cloudflare TCP sockets (node:net) which only exist when
-//   this flag is enabled.
+//   `_wm.js` uses Cloudflare TCP sockets (cloudflare:sockets) and Web Crypto
+//   globals which are available in that mode.
 
-import { WorkerMailer } from 'worker-mailer';
+import { WorkerMailer } from './_wm.js';
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {

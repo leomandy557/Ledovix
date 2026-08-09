@@ -8,7 +8,5 @@
     "build": "echo \"static site; no build step required\"",
     "pages:deploy": "echo \"deploy via Cloudflare Pages Git integration\""
   },
-  "dependencies": {
-    "worker-mailer": "^1.2.1"
-  }
+  "dependencies": {}
 }
