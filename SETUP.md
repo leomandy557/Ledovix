@@ -23,12 +23,12 @@ Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment vari
 
 ## 3. 构建设置
 
-- **Build command（构建命令）**：留空即可（Cloudflare 会自动读取 `package.json` 并安装依赖、打包 Functions）。如你的项目设置了自定义构建命令，请确保它包含 `npm install`。
+- **Build command（构建命令）**：留空即可（无需自定义构建命令）。
 - **Build output directory（输出目录）**：`/`（仓库根，因为 `index.html` 在根）。
 - **Root directory（根目录）**：`/`（默认）。
 - **Framework preset**：`None`（纯静态）。
 
-Cloudflare 会根据 `package.json` 中的 `worker-mailer` 依赖，在构建时安装并随 Functions 一起打包。`worker-mailer` 是零依赖库，专为 Cloudflare Workers 的 TCP sockets 设计。
+⚠️ **重要 — Cloudflare Pages Functions 不会在构建前运行 `npm install`**。它只用 esbuild 直接打包 `functions/` 目录，因此 `package.json` 里的 npm 依赖（如 `worker-mailer`）在构建时无法被解析，会报 `Could not resolve "worker-mailer"` 导致部署失败。**本项目已把 `worker-mailer` 的源码内联到 `functions/api/_wm.js`**（文件名以 `_` 开头，不会被当作路由），`send-email.js` 改为 `import { WorkerMailer } from './_wm.js'`。`_wm.js` 仅依赖 Cloudflare 内置模块 `cloudflare:sockets`（打包器会自动 externalize），所以整个 Functions 构建**零 npm 依赖**，必定成功。不要再把 `worker-mailer` 加回 `package.json` 当作运行时依赖。
 
 ## 4. 验证「对话 → 报价 → 发邮件给 Leo」链路
 

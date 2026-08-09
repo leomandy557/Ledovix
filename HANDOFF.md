@@ -13,9 +13,10 @@
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `functions/api/send-email.js` | 新增 | Cloudflare Pages Function：收到前端 POST 后，通过 QQ SMTP 把咨询邮件发给 `REVIEW_EMAIL`；使用 `worker-mailer`（Workers 原生 TCP sockets） |
+| `functions/api/send-email.js` | 新增 | Cloudflare Pages Function：收到前端 POST 后，通过 QQ SMTP 把咨询邮件发给 `REVIEW_EMAIL`；从同目录 `./_wm.js` 引入内联版 `worker-mailer` |
+| `functions/api/_wm.js` | 新增 | **内联的 `worker-mailer` 源码**（文件名以 `_` 开头，不暴露为路由）。仅依赖 Cloudflare 内置 `cloudflare:sockets`，使整个 Functions 构建**零 npm 依赖**，规避 Pages 不跑 `npm install` 导致的 `Could not resolve "worker-mailer"` 错误 |
 | `index.html` | 修改 | 在 `renderBackendQuote()` 生成报价后调用 `notifyLead()`，自动 POST `/api/send-email`；摘要面板显示发送状态（成功/失败），失败不阻断用户拿到报价 |
-| `package.json` | 新增 | 声明 `worker-mailer` 依赖（Pages 构建时安装并随 Functions 打包；零依赖、专为 Cloudflare Workers 设计） |
+| `package.json` | 新增 | 已移除 `worker-mailer` 依赖（依赖改为内联）；仅保留 `type: module` 与占位脚本 |
 | `SETUP.md` | 新增 | Cloudflare 部署与三个环境变量、`nodejs_compat` 设置说明 |
 | `GITHUB_PUSH.md` | 新增 | 推送步骤与认证方式 |
 | `HANDOFF.md` | 新增 | 本文件 |
