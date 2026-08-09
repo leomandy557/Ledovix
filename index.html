@@ -1721,6 +1721,7 @@ function buildQuotationMap(res){
   const cfg = (res && res.rec) ? res.rec.config : {};
   const quote = (res && res.quote) || {};
   const spec = (res && res.rec) ? res.rec.spec : null;
+  const geo = (res && res.quote && res.quote.geometry) ? res.quote.geometry : null;
   const today = new Date();
   const dateStr = today.getFullYear() + '-' +
     String(today.getMonth()+1).padStart(2,'0') + '-' +
@@ -1751,8 +1752,8 @@ function buildQuotationMap(res){
   map.product_subtitle = cfg.typeName ? (cfg.typeName.cn || cfg.typeName.en) : '';
   map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
   map.pixel_pitch = cfg.pitch ? ('P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm') : '-';
-  if(spec && spec.pxW && spec.pxH) map.resolution = Math.round(spec.pxW) + ' × ' + Math.round(spec.pxH) + ' px';
-  else if(spec && spec.totalPx) map.resolution = Math.round(spec.totalPx/1e6) + ' M pixels';
+  if(geo && geo.pxW && geo.pxH) map.resolution = Math.round(geo.pxW) + ' × ' + Math.round(geo.pxH) + ' px';
+  else if(geo && geo.totalPx) map.resolution = Math.round(geo.totalPx/1e6) + ' M pixels';
   else map.resolution = '-';
   map.brightness = cfg.brightness || '-';
   map.refresh_rate = cfg.refresh || '-';
