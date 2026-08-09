@@ -1,11 +1,10 @@
-// Cloudflare Pages Function — auto-send a lead/quote email to Leo via QQ mail SMTP
+// Cloudflare Pages Function — auto-send a lead/quote email to Leo via QQ SMTP
 //
 // WHY THIS EXISTS:
 //   When a visitor finishes a LEDOVIX consultation, the frontend produces a
-//   quote (via the led-configurator brain). This server-side function emails
-//   that quote + the customer's contact details to the sales review inbox
-//   (REVIEW_EMAIL) so Leo's team can follow up. Doing it server-side keeps the
-//   QQ SMTP credentials out of the browser.
+//   quote. This server-side function emails that quote + the customer's contact
+//   details to the sales review inbox (REVIEW_EMAIL) so Leo's team can follow up.
+//   Doing it server-side keeps the QQ SMTP credentials out of the browser.
 //
 // TRIGGERED BY:
 //   The frontend calls same-origin POST "/api/send-email" (see index.html ->
@@ -19,13 +18,10 @@
 //
 // COMPATIBILITY FLAG (required!):
 //   Settings -> Functions -> Compatibility flags -> add `nodejs_compat`.
-//   nodemailer uses node:tls; without this flag the import/runtime will fail.
-//
-// NOTE: SMTP-over-Workers requires nodejs_compat. If nodemailer ever fails on
-// your runtime, the documented fallback is to swap the transport for an
-// HTTP email API (e.g. Resend) — see SETUP.md.
+//   worker-mailer uses Cloudflare TCP sockets (node:net) which only exist when
+//   this flag is enabled.
 
-import nodemailer from 'nodemailer';
+import { WorkerMailer } from 'worker-mailer';
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
@@ -74,30 +70,44 @@ export async function onRequest({ request, env }) {
   const text = buildText(needs, quoteText, quote);
   const html = buildHtml(needs, quoteText, quote);
 
-  let transport;
   try {
-    transport = nodemailer.createTransport({
-      host: 'smtp.qq.com',
-      port: 465,
-      secure: true, // SSL on 465
-      auth: { user, pass },
-      tls: { rejectUnauthorized: true },
-      // Workers runtime can be slow to open a socket; give it room.
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-    });
+    const result = await WorkerMailer.send(
+      {
+        host: 'smtp.qq.com',
+        port: 465,
+        secure: true, // implicit TLS on 465
+        authType: 'login',
+        credentials: {
+          username: user,
+          password: pass,
+        },
+        socketTimeoutMs: 15000,
+        responseTimeoutMs: 15000,
+      },
+      {
+        from: { name: 'LEDOVIX Lead Bot', email: user },
+        to: { name: 'Leo', email: to },
+        subject,
+        text,
+        html,
+      }
+    );
 
-    const info = await transport.sendMail({
-      from: '"LEDOVIX Lead Bot" <' + user + '>',
-      to,
-      subject,
-      text,
-      html,
+    return json({
+      ok: true,
+      accepted: result.accepted,
+      rejected: result.rejected,
+      messageId: result.messageId,
     });
-    return json({ ok: true, messageId: info.messageId });
   } catch (err) {
+    console.error('[send-email] WorkerMailer.send failed:', err);
     return json(
-      { ok: false, error: 'SMTP send failed: ' + (err && err.message ? err.message : String(err)) },
+      {
+        ok: false,
+        error:
+          'SMTP send failed: ' +
+          (err && err.message ? err.message : String(err)),
+      },
       502
     );
   }

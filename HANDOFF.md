@@ -13,9 +13,9 @@
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `functions/api/send-email.js` | 新增 | Cloudflare Pages Function：收到前端 POST 后，通过 QQ SMTP 把咨询邮件发给 `REVIEW_EMAIL` |
+| `functions/api/send-email.js` | 新增 | Cloudflare Pages Function：收到前端 POST 后，通过 QQ SMTP 把咨询邮件发给 `REVIEW_EMAIL`；使用 `worker-mailer`（Workers 原生 TCP sockets） |
 | `index.html` | 修改 | 在 `renderBackendQuote()` 生成报价后调用 `notifyLead()`，自动 POST `/api/send-email`；摘要面板显示发送状态（成功/失败），失败不阻断用户拿到报价 |
-| `package.json` | 新增 | 声明 `nodemailer` 依赖（Pages 构建时安装并随 Functions 打包） |
+| `package.json` | 新增 | 声明 `worker-mailer` 依赖（Pages 构建时安装并随 Functions 打包；零依赖、专为 Cloudflare Workers 设计） |
 | `SETUP.md` | 新增 | Cloudflare 部署与三个环境变量、`nodejs_compat` 设置说明 |
 | `GITHUB_PUSH.md` | 新增 | 推送步骤与认证方式 |
 | `HANDOFF.md` | 新增 | 本文件 |
@@ -26,7 +26,7 @@
 1. **邮件内容** = 客户联系信息（姓名/邮箱/电话/公司）+ 报价正文（`res.text`）+ RMB/USD 合计。
 2. **发送时机** = 对话结束、报价生成后，与现有 `showSummary()` 流程一致（此时 `collectedNeeds` 已收集完整）。
 3. **凭证**走环境变量 `QQ_SMTP_USER` / `QQ_SMTP_PASS` / `REVIEW_EMAIL`，由用户在 Cloudflare 后台配置。
-4. **依赖 `nodejs_compat`** 使 `nodemailer`（`node:tls`）能在 Workers 运行时工作。
+4. **依赖 `nodejs_compat`** 使 `worker-mailer` 能使用 Cloudflare Workers 的 TCP sockets（`cloudflare:sockets`）连接 QQ SMTP。
 
 ## 设计要点 / 与现有代码的衔接
 

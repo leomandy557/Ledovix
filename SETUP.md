@@ -19,7 +19,7 @@ Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment vari
 
 **Settings → Functions → Compatibility flags → 添加 `nodejs_compat`**。
 
-`send-email.js` 用 `nodemailer`（依赖 `node:tls`）；没有这个 flag，函数在运行时导入/连接会失败。
+`send-email.js` 用 `worker-mailer`，它通过 `cloudflare:sockets`（TCP sockets）连接 QQ SMTP；`nodejs_compat` 是启用 TCP sockets API 必需的兼容标志。没有这个 flag，函数在运行时会报 `cloudflare:sockets` 不可用或 SMTP 连接失败。
 
 ## 3. 构建设置
 
@@ -28,7 +28,7 @@ Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment vari
 - **Root directory（根目录）**：`/`（默认）。
 - **Framework preset**：`None`（纯静态）。
 
-Cloudflare 会根据 `package.json` 中的 `nodemailer` 依赖，在构建时安装并随 Functions 一起打包。
+Cloudflare 会根据 `package.json` 中的 `worker-mailer` 依赖，在构建时安装并随 Functions 一起打包。`worker-mailer` 是零依赖库，专为 Cloudflare Workers 的 TCP sockets 设计。
 
 ## 4. 验证「对话 → 报价 → 发邮件给 Leo」链路
 
@@ -53,5 +53,5 @@ curl -X POST https://<your-project>.pages.dev/api/send-email \
 ## 5. 故障排查 / 备选方案
 
 - **535 认证失败**：`QQ_SMTP_PASS` 用的是登录密码而不是授权码。去 QQ 邮箱开启 SMTP 并生成授权码。
-- **nodemailer 在 Workers 运行时 TLS 报错**：确认已开 `nodejs_compat`；端口用 `465` + `secure:true`（SSL）。
-- **若 nodemailer 在你使用的运行时仍不稳定**：可把 `send-email.js` 里的 transport 换成 HTTP 邮件服务（如 Resend / SendGrid）的 REST 调用，逻辑不变，只需改 transport 部分。
+- **SMTP 连接 / TLS 报错**：确认已开 `nodejs_compat`；端口用 `465` + `secure:true`（SSL）。
+- **若 QQ SMTP 在 Workers 运行时仍不稳定**：可把 `send-email.js` 里的 `WorkerMailer.send()` 换成 HTTP 邮件服务（如 Resend / SendGrid）的 REST 调用，逻辑不变，只需改发送部分。

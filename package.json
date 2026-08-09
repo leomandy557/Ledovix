@@ -9,6 +9,6 @@
     "pages:deploy": "echo \"deploy via Cloudflare Pages Git integration\""
   },
   "dependencies": {
-    "nodemailer": "^6.9.13"
+    "worker-mailer": "^1.7.0"
   }
 }
