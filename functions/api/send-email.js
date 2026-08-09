@@ -8,7 +8,8 @@
 //
 // TRIGGERED BY:
 //   The frontend calls same-origin POST "/api/send-email" (see index.html ->
-//   notifyLead()) with: { needs, quoteText, quote }.
+//   notifyLead()) with: { needs, quoteText, quote, attachment? } where
+//   attachment is { filename, content(base64), mimeType } — the filled Excel.
 //
 // ENV VARS (Cloudflare Dashboard -> Pages project -> Settings -> Environment
 // variables; set for BOTH Production and Preview):
@@ -54,6 +55,7 @@ export async function onRequest({ request, env }) {
   const needs = payload && payload.needs ? payload.needs : {};
   const quoteText = (payload && payload.quoteText) || '';
   const quote = payload && payload.quote ? payload.quote : {};
+  const attachment = payload && payload.attachment ? payload.attachment : null;
 
   const user = env.QQ_SMTP_USER;
   const pass = env.QQ_SMTP_PASS;
@@ -76,8 +78,8 @@ export async function onRequest({ request, env }) {
     (needs.name || 'Unknown') +
     (needs.company ? ' (' + needs.company + ')' : '');
 
-  const text = buildText(needs, quoteText, quote);
-  const html = buildHtml(needs, quoteText, quote);
+  const text = buildText(needs, quoteText, quote, attachment);
+  const html = buildHtml(needs, quoteText, quote, attachment);
 
   try {
     const result = await WorkerMailer.send(
@@ -99,6 +101,7 @@ export async function onRequest({ request, env }) {
         subject,
         text,
         html,
+        attachments: attachment ? [attachment] : undefined,
       }
     );
 
@@ -128,7 +131,7 @@ function fmtVal(v) {
   return String(v);
 }
 
-function buildText(needs, quoteText, quote) {
+function buildText(needs, quoteText, quote, attachment) {
   const n = needs || {};
   const L = [];
   L.push('New LEDOVIX consultation lead');
@@ -151,6 +154,10 @@ function buildText(needs, quoteText, quote) {
     if (quote.perSqm !== undefined) L.push('  /m² : ¥' + Math.round(quote.perSqm));
     L.push('');
   }
+  if (attachment && attachment.filename) {
+    L.push('Attachment: ' + attachment.filename + ' (filled SimpLED quotation in .xlsx)');
+    L.push('');
+  }
   L.push('--- Quote ---');
   L.push(quoteText || '(no quote text returned)');
   return L.join('\n');
@@ -164,7 +171,7 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-function buildHtml(needs, quoteText, quote) {
+function buildHtml(needs, quoteText, quote, attachment) {
   const n = needs || {};
   const rows = [
     ['Name', fmtVal(n.name)],
@@ -201,6 +208,10 @@ function buildHtml(needs, quoteText, quote) {
     })
     .join('');
 
+  const attNote = (attachment && attachment.filename)
+    ? '<p style="margin:8px 0;"><em>📎 Attachment: ' + esc(attachment.filename) + ' — filled SimpLED quotation (.xlsx)</em></p>'
+    : '';
+
   return (
     '<div style="font-family:Arial,Helvetica,sans-serif;color:#222;">' +
     '<h2 style="color:#0a4d8c;">New LEDOVIX Lead</h2>' +
@@ -208,6 +219,7 @@ function buildHtml(needs, quoteText, quote) {
     contactRows +
     '</table>' +
     totals +
+    attNote +
     '<h3 style="color:#0a4d8c;">Quote</h3>' +
     '<div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:6px;' +
     'padding:12px;font-family:monospace;font-size:13px;white-space:pre-wrap;">' +

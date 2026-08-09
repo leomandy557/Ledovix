@@ -942,7 +942,9 @@ body{
   <div class="summary-body" id="summaryBody"></div>
 
   <!-- ===== Backend-generated quote (led-configurator) ===== -->
-  <div class="quote-section" id="quoteSection">
+  <!-- Hidden from the customer-facing UI: the quote is generated internally
+       and emailed to the sales team; customers must NOT see this panel. -->
+  <div class="quote-section" id="quoteSection" style="display:none">
     <h5 class="quote-title" id="quoteTitle">💰 Your Instant Quote</h5>
     <div class="quote-body" id="quoteBody">
       <div class="quote-loading"><span class="quote-spinner"></span><span id="quoteLoadingText">Our engine is configuring your LED display…</span></div>
@@ -966,6 +968,8 @@ body{
 <script src="backend/recommend.js"></script>
 <script src="backend/quoteEngine.js"></script>
 <script src="backend/backend.js"></script>
+<!-- SheetJS (vendored locally — no CDN dependency) used to fill the Excel quotation attachment -->
+<script src="assets/vendor/xlsx.full.min.js"></script>
 
 <script>
 // ==================== DATA ====================
@@ -1262,9 +1266,10 @@ function renderMessages(){
     //  see below — so they stay available even while chatting with Leo.)
   });
 
-  // Sticky quick-reply options for the CURRENT step (hybrid primary path).
-  // Hidden while a typing indicator is showing, to avoid a flash of stale options.
-  if(!typing){
+  // Sticky quick-reply options for the CURRENT step.
+  // Only shown in classic/fallback mode (see showScriptedOptions) — when Leo
+  // is driving the conversation these would duplicate the question Leo already asked.
+  if(!typing && showScriptedOptions()){
     const flow = getActiveFlow();
     if(currentStep < flow.length){
       const step = flow[currentStep];
@@ -1286,6 +1291,15 @@ function renderMessages(){
 
   if(typing) container.appendChild(typing);
   container.scrollTop = container.scrollHeight;
+}
+
+// Single source of truth for showing the scripted quick-reply buttons.
+// They are ONLY used in classic / fallback mode. When Leo (AI) is actively
+// driving the conversation we hide them — otherwise Leo's question and the
+// scripted buttons would both appear for the same step (the "question asked
+// twice" bug). Exactly one agent asks questions at a time.
+function showScriptedOptions(){
+  return !AI_CONFIG.enabled || fallbackActive;
 }
 
 function handleOptionClick(option){
@@ -1569,6 +1583,7 @@ function showSummary(){
   }
 
   html += '<div class="summary-notice">'+t('summary.notice')+'</div>';
+  html += '<div class="summary-lead-note" id="leadStatusNote" style="margin-top:0.75rem;font-weight:600;">'+leadNoteText('sending')+'</div>';
   document.getElementById('summaryBody').innerHTML = html;
 
   // Generate the quote via the backend brain (led-configurator)
@@ -1605,13 +1620,8 @@ function renderBackendQuote(){
       box.appendChild(pre);
 
       // Auto-notify the sales team (Leo) by email — fire-and-forget.
-      // Never block the user from seeing their quote.
-      var leadStatus = document.createElement('div');
-      leadStatus.className = 'quote-note';
-      leadStatus.style.marginTop = '0.75rem';
-      leadStatus.textContent = '📧 Sending a copy of this quote to our team…';
-      box.appendChild(leadStatus);
-      notifyLead(res, leadStatus);
+      // The visible confirmation is shown in #leadStatusNote (summary panel).
+      notifyLead(res);
     } catch(e){
       box.innerHTML = '<div class="quote-note warn">⚠️ ' + String(e && e.message || e) + '<br>' + t('quote.fallback') + '</div>';
     }
@@ -1621,36 +1631,152 @@ function renderBackendQuote(){
 /* ============================================================
    AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
    ============================================================ */
-function notifyLead(res, statusEl){
-  try {
-    fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        needs: collectedNeeds,
-        quoteText: res.text,
-        quote: {
-          total: res.quote && res.quote.total,
-          usd: res.quote && res.quote.usd,
-          perSqm: res.quote && res.quote.perSqm
-        }
-      })
-    })
-    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-    .then(function (o) {
-      if (!statusEl) return;
-      if (o.ok && o.j && o.j.ok) {
-        statusEl.textContent = '✅ A copy of this quote has been sent to our team for review.';
-      } else {
-        statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
-      }
-    })
-    .catch(function () {
-      if (statusEl) statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
+function leadNoteText(state){
+  // Localized on-page text for the "email sent" notice (Item 2b).
+  const M = {
+    sending: {en:'📧 Sending inquiry email to our team…', pt:'📧 Enviando e-mail de consulta à nossa equipe…', es:'📧 Enviando correo de consulta a nuestro equipo…', fr:'📧 Envoi du courriel de demande à notre équipe…', zh:'📧 正在向团队发送询盘邮件…'},
+    sent:    {en:'✅ Inquiry email sent to Leo', pt:'✅ E-mail de consulta enviado ao Leo', es:'✅ Correo de consulta enviado a Leo', fr:'✅ Courriel de demande envoyé à Leo', zh:'✅ 询盘邮件已发送给 Leo'},
+    failed:  {en:'⚠️ Could not auto-send the email — our team will follow up manually.', pt:'⚠️ Não foi possível enviar o e-mail automaticamente — nossa equipe entrará em contato.', es:'⚠️ No se pudo enviar el correo automáticamente — nuestro equipo hará seguimiento.', fr:'⚠️ Envoi automatique impossible — notre équipe suivra manuellement.', zh:'⚠️ 自动发送邮件失败，团队将手动跟进。'}
+  };
+  const m = M[state] || M.sending;
+  return m[currentLang] || m.en;
+}
+
+/* ============================================================
+   AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
+   Sends the customer's basics + the reference plan (filled Excel)
+   as an attachment. The on-page confirmation is shown in #leadStatusNote.
+   ============================================================ */
+function notifyLead(res){
+  const statusEl = document.getElementById('leadStatusNote');
+  const setStatus = function(state){ if(statusEl) statusEl.textContent = leadNoteText(state); };
+
+  const payload = {
+    needs: collectedNeeds,
+    quoteText: res ? res.text : '',
+    quote: res && res.quote ? {
+      total: res.quote.total,
+      usd: res.quote.usd,
+      perSqm: res.quote.perSqm
+    } : {},
+    attachment: null
+  };
+
+  // Build the filled Excel quotation (best-effort), then send.
+  buildQuotationAttachment(res).then(function(att){
+    if(att) payload.attachment = att;
+    return fetch('/api/send-email', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
     });
-  } catch (e) {
-    if (statusEl) statusEl.textContent = '⚠️ Could not auto-send the email — our team will follow up manually.';
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(o){ setStatus(o.ok && o.j && o.j.ok ? 'sent' : 'failed'); })
+    .catch(function(){ setStatus('failed'); });
+}
+
+// Fill SimpLED_quotation_template.xlsx with the customer info + reference plan,
+// return {filename, content(base64), mimeType} ready to attach. null on failure.
+async function buildQuotationAttachment(res){
+  try {
+    if(typeof XLSX === 'undefined') return null;
+    const resp = await fetch('assets/SimpLED_quotation_template.xlsx');
+    if(!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const map = buildQuotationMap(res);
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for(let R=range.s.r; R<=range.e.r; R++){
+      for(let C=range.s.c; C<=range.e.c; C++){
+        const addr = XLSX.utils.encode_cell({r:R, c:C});
+        const cell = ws[addr];
+        if(cell && typeof cell.v === 'string'){
+          const replaced = cell.v.replace(/\{\{(\w+)\}\}/g, function(_m, k){
+            const v = map[k];
+            return (v !== undefined && v !== null && v !== '') ? String(v) : '';
+          });
+          if(replaced !== cell.v){ cell.v = replaced; delete cell.w; }
+        }
+      }
+    }
+
+    const b64 = XLSX.write(wb, {type:'base64', bookType:'xlsx'});
+    const safeName = (collectedNeeds.name || 'Lead').replace(/[^\w\-]+/g, '_');
+    return {
+      filename: 'LEDOVIX_Quotation_' + safeName + '.xlsx',
+      content: b64,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+  } catch(e){
+    console.error('[quotation] failed to build Excel attachment:', e);
+    return null;
   }
+}
+
+// Build the {{token}} -> value map for the Excel template.
+function buildQuotationMap(res){
+  const n = collectedNeeds || {};
+  const cfg = (res && res.rec) ? res.rec.config : {};
+  const quote = (res && res.quote) || {};
+  const spec = (res && res.rec) ? res.rec.spec : null;
+  const today = new Date();
+  const dateStr = today.getFullYear() + '-' +
+    String(today.getMonth()+1).padStart(2,'0') + '-' +
+    String(today.getDate()).padStart(2,'0');
+
+  const map = {
+    seller_company: 'LEDOVIX',
+    seller_tagline: 'Professional LED Display Solutions',
+    seller_name: 'Leo',
+    prepared_by: 'Leo / LEDOVIX',
+    currency: 'RMB',
+    quotation_number: 'LED-' + today.getTime(),
+    date: dateStr,
+    customer_name: n.name || '-',
+    customer_tel: n.phone || '-',
+    customer_email: n.email || '-',
+    services_note: 'Includes remote technical support & spare parts kit.',
+    payment_terms: '50% T/T deposit, 50% before shipment',
+    warranty: '2 years',
+    lead_time: '15-20 working days',
+    price_validity: '30 days',
+    delivery_terms: 'EXW / FOB Shenzhen',
+    vat_note: 'Price is VAT-inclusive where applicable'
+  };
+
+  map.product_title = (cfg.typeName ? (cfg.typeName.en || cfg.typeName.cn) : 'LED Display') +
+    (cfg.model ? ' ' + cfg.model : '');
+  map.product_subtitle = cfg.typeName ? (cfg.typeName.cn || cfg.typeName.en) : '';
+  map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
+  map.pixel_pitch = cfg.pitch ? ('P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm') : '-';
+  if(spec && spec.pxW && spec.pxH) map.resolution = Math.round(spec.pxW) + ' × ' + Math.round(spec.pxH) + ' px';
+  else if(spec && spec.totalPx) map.resolution = Math.round(spec.totalPx/1e6) + ' M pixels';
+  else map.resolution = '-';
+  map.brightness = cfg.brightness || '-';
+  map.refresh_rate = cfg.refresh || '-';
+  map.ip_rating = cfg.ipRating || '-';
+
+  const lines = (quote.lines && Array.isArray(quote.lines)) ? quote.lines : [];
+  const baseLine = lines.find(function(l){ return !l.included && !l.tbd; }) || lines[0];
+  map.base_qty = baseLine && baseLine.qty ? baseLine.qty : 1;
+  map.base_desc = baseLine ? baseLine.name : (map.product_title || '-');
+  map.base_price = (baseLine && typeof baseLine.amount === 'number') ? Math.round(baseLine.amount) : '-';
+
+  let optIdx = 0;
+  for(const l of lines){
+    if(l === baseLine) continue;
+    if(l.included || l.tbd) continue;
+    if(optIdx >= 10) break;
+    map['opt'+optIdx+'_qty'] = l.qty ? l.qty : 1;
+    map['opt'+optIdx+'_desc'] = l.name || '-';
+    map['opt'+optIdx+'_price'] = (typeof l.amount === 'number') ? Math.round(l.amount) : '-';
+    optIdx++;
+  }
+
+  map.final_price = (quote.total !== undefined) ? Math.round(quote.total) : '-';
+  return map;
 }
 
 // ==================== RESET ====================
