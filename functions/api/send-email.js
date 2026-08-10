@@ -82,26 +82,36 @@ export async function onRequest({ request, env }) {
         { filename: attachment.filename, content: attachment.content },
       ];
     }
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + env.RESEND_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json().catch(() => null);
+    // AbortController guards against a hanging upstream so the function always
+    // returns our own JSON (never a Cloudflare 502 HTML page).
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 10000);
+    let r, data;
+    try {
+      r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + env.RESEND_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+      data = await r.json().catch(() => null);
+    } finally {
+      clearTimeout(timer);
+    }
     if (r.ok && data && data.id) {
       return json({ ok: true, via: 'resend', id: data.id }, 200);
     }
-    console.warn('[send-email] Resend error:', r.status, JSON.stringify(data));
+    console.warn('[send-email] Resend error:', r && r.status, JSON.stringify(data));
     return json(
       {
         ok: false,
         via: 'resend',
         error:
           'Resend API error ' +
-          r.status +
+          (r ? r.status : 'no-response') +
           ': ' +
           (data && (data.message || JSON.stringify(data)) || 'unknown') +
           '. Verify RESEND_API_KEY is valid and REVIEW_EMAIL is an allowed recipient.',
@@ -111,11 +121,13 @@ export async function onRequest({ request, env }) {
     );
   } catch (e) {
     console.warn('[send-email] Resend request failed:', e && e.message ? e.message : String(e));
+    const aborted = e && e.name === 'AbortError';
     return json(
       {
         ok: false,
         via: 'resend',
-        error: 'Resend request failed: ' + (e && e.message ? e.message : String(e)),
+        error: (aborted ? 'Resend request timed out (>10s). ' : 'Resend request failed: ') +
+          (e && e.message ? e.message : String(e)),
         debug,
       },
       502
