@@ -1329,7 +1329,7 @@ function handleOptionClick(option){
     if(step.id === 'screenSize' && option && typeof option === 'object' && option.w !== undefined){
       collectedNeeds.screenSize = {width:option.w, height:option.h, display: option.label};
     } else {
-      collectedNeeds[step.field] = label;
+      collectedNeeds[step.field] = isObj ? option : label;
     }
   }
   advanceConversation();
@@ -1604,7 +1604,8 @@ function showSummary(){
   Object.entries(labels).forEach(([k,l])=>{
     let val = collectedNeeds[k];
     if(!val) return;
-    if(k === 'screenSize' && typeof val === 'object') val = val.display || `${val.width}m × ${val.height}m`;
+    val = dispVal(val);
+    if(!val) return;
     html += `<div class="summary-req-item"><span class="summary-req-label">${l}:</span><span class="summary-req-value">${val}</span></div>`;
   });
   html += '</div>';
@@ -1751,6 +1752,17 @@ async function buildQuotationAttachment(res){
   }
 }
 
+// Render a collected-needs value for display (handles option-objects
+// {label, brand, note} and screenSize {width, height, display}).
+function dispVal(v){
+  if(v && typeof v === 'object'){
+    if(v.display !== undefined) return v.display;
+    if(v.label !== undefined) return v.label;
+    return JSON.stringify(v);
+  }
+  return (v === null || v === undefined) ? '' : String(v);
+}
+
 // Build the {{token}} -> value map for the Excel template.
 function buildQuotationMap(res){
   const n = collectedNeeds || {};
@@ -1787,8 +1799,8 @@ function buildQuotationMap(res){
     (cfg.model ? ' ' + cfg.model : '');
   map.product_subtitle = cfg.typeName ? (cfg.typeName.cn || cfg.typeName.en) : '';
   map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
-  map.control_system = n.controlSystem || '-';
-  map.connection_type = n.connectionType || '-';
+  map.control_system = n.controlSystem ? dispVal(n.controlSystem) : '-';
+  map.connection_type = n.connectionType ? dispVal(n.connectionType) : '-';
   map.pixel_pitch = cfg.pitch ? ('P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm') : '-';
   if(geo && geo.pxW && geo.pxH) map.resolution = Math.round(geo.pxW) + ' × ' + Math.round(geo.pxH) + ' px';
   else if(geo && geo.totalPx) map.resolution = Math.round(geo.totalPx/1e6) + ' M pixels';
@@ -1883,7 +1895,10 @@ const i18n = {
     'flow.screenSize.snap':'Snapped to standard size: {size}',
     'flow.screenSize.custom':'✏️ Custom size (enter W × H)',
     'flow.controlSystem.q':'Which control system do you prefer?',
-    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1note':'Market leader — widest range, best for fine-pitch & rental, strong global support',
+    'flow.controlSystem.o2note':'Cost-effective async controllers — popular for fixed install & signage',
+    'flow.controlSystem.o3note':'Strong in rental / staging & video processing — great value',
     'flow.connection.q':'Hard-wired or soft (modular) connection?',
     'flow.connection.o1':'🔗 Hard-wired connection',
     'flow.connection.o1note':'Lower cost · very stable signal · best for fixed installations',
@@ -1942,7 +1957,10 @@ const i18n = {
     'flow.screenSize.snap':'Ajustado a tamaño estándar: {size}',
     'flow.screenSize.custom':'✏️ Tamaño personalizado (ancho × alto)',
     'flow.controlSystem.q':'¿Qué sistema de control prefieres?',
-    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1note':'Líder de mercado — gama más amplia, ideal para paso fino y alquiler, gran soporte global',
+    'flow.controlSystem.o2note':'Controladoras asíncronas económicas — populares en instalación fija y señalización',
+    'flow.controlSystem.o3note':'Fuerte en alquiler / escenarios y procesamiento de vídeo — gran relación calidad-precio',
     'flow.connection.q':'¿Conexión cableada (rígida) o modular (blanda)?',
     'flow.connection.o1':'🔗 Conexión cableada (rígida)',
     'flow.connection.o1note':'Menor coste · señal muy estable · ideal para instalaciones fijas',
@@ -2001,7 +2019,10 @@ const i18n = {
     'flow.screenSize.snap':'Ajustado ao tamanho padrão: {size}',
     'flow.screenSize.custom':'✏️ Tamanho personalizado (largura × altura)',
     'flow.controlSystem.q':'Qual sistema de controle você prefere?',
-    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1note':'Líder de mercado — maior variedade, melhor para passo fino e locação, forte suporte global',
+    'flow.controlSystem.o2note':'Controladoras assíncronas custo-efetivas — populares em instalação fixa e sinalização',
+    'flow.controlSystem.o3note':'Forte em locação / palco e processamento de vídeo — ótimo custo-benefício',
     'flow.connection.q':'Conexão cabeada (rígida) ou modular (flexível)?',
     'flow.connection.o1':'🔗 Conexão cabeada (rígida)',
     'flow.connection.o1note':'Menor custo · sinal muito estável · ideal para instalações fixas',
@@ -2060,7 +2081,10 @@ const i18n = {
     'flow.screenSize.snap':'Ajusté à la taille standard : {size}',
     'flow.screenSize.custom':'✏️ Taille personnalisée (largeur × hauteur)',
     'flow.controlSystem.q':'Quel système de contrôle préférez-vous ?',
-    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1note':'Leader du marché — plus large gamme, idéal pour pitch fin et location, support mondial solide',
+    'flow.controlSystem.o2note':'Contrôleurs asynchrones économiques — populaires en installation fixe et signalétique',
+    'flow.controlSystem.o3note':'Fort en location / scène et traitement vidéo — excellent rapport qualité-prix',
     'flow.connection.q':'Connexion filaire (rigide) ou modulaire (souple) ?',
     'flow.connection.o1':'🔗 Connexion filaire (rigide)',
     'flow.connection.o1note':'Coût plus bas · signal très stable · idéal pour installations fixes',
@@ -2380,10 +2404,14 @@ function getLocalizedFlow(){
         {label:'10.0m × 5.0m', w:10, h:5},
       ],
       customAction:'showScreenSizeInput', customLabel:t('flow.screenSize.custom')},
-    {id:'controlSystem',question:t('flow.controlSystem.q'),field:'controlSystem',options:[t('flow.controlSystem.o1'),t('flow.controlSystem.o2'),t('flow.controlSystem.o3')]},
+    {id:'controlSystem',question:t('flow.controlSystem.q'),field:'controlSystem',options:[
+      {label:t('flow.controlSystem.o1'), brand:'诺瓦 Novastar', note:t('flow.controlSystem.o1note')},
+      {label:t('flow.controlSystem.o2'), brand:'灰度 Huidu', note:t('flow.controlSystem.o2note')},
+      {label:t('flow.controlSystem.o3'), brand:'卡莱特 Colorlight', note:t('flow.controlSystem.o3note')},
+    ]},
     {id:'connectionType',question:t('flow.connection.q'),field:'connectionType',options:[
-      {label:t('flow.connection.o1'), note:t('flow.connection.o1note')},
-      {label:t('flow.connection.o2'), note:t('flow.connection.o2note')},
+      {label:t('flow.connection.o1'), note:t('flow.connection.o1note'), kind:'hard'},
+      {label:t('flow.connection.o2'), note:t('flow.connection.o2note'), kind:'soft'},
     ]},
     {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')],skipIf:function(){return isOutdoorBillboard();}},
     {id:'contact',question:t('flow.contact.q'),field:'contact',isContact:true},

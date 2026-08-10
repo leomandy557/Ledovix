@@ -508,7 +508,7 @@ function recommendLocal(DB, input, options) {
 
   var spec = specOf(t, sel, W, H, units);
   var install = pickInstall(DB, t, need);
-  var ctrlBrand = '诺瓦 Novastar';
+  var ctrlBrand = need.ctrlBrand || '诺瓦 Novastar';
 
   /* alternatives: one finer, one coarser */
   var byPitch = picked.pool.slice().sort(function (a, b) { return (a.m.pitch || 0) - (b.m.pitch || 0); });
@@ -553,8 +553,8 @@ function recommendLocal(DB, input, options) {
       connType === 'hard' ? 'Rigid-link cabinets for the best flatness on a semi-permanent setup' : 'Soft-link cabinets for fast, lightweight setup and teardown'));
   }
   reasons.push(bilingual(
-    '控制系统默认诺瓦（Novastar）出口型号，自动按 ' + (spec.totalPx / 1e6).toFixed(2) + 'M 像素匹配收发卡',
-    'Novastar export-grade controllers, auto-matched to ' + (spec.totalPx / 1e6).toFixed(2) + 'M pixels'));
+    '控制系统 ' + ctrlBrand + ' 出口型号，自动按 ' + (spec.totalPx / 1e6).toFixed(2) + 'M 像素匹配收发卡',
+    ctrlBrand + ' export-grade controllers, auto-matched to ' + (spec.totalPx / 1e6).toFixed(2) + 'M pixels'));
   reasons.push(bilingual(
     '安装方式 ' + install + '，包装 ' + (t.packing === 'flight' ? '航空箱' : '木箱') + '（出口标准）',
     'Installation: ' + install + '; packing: ' + (t.packing === 'flight' ? 'flight cases' : 'wooden crates') + ' (export standard)'));

@@ -89,9 +89,36 @@ function buildNeedFromCollected(needs) {
   base.distance = (dist !== null) ? dist : base.distance;
   base.qty = 1;
   base.installHint = installHint;
-  base.connHint = null;
+
+  // Control system brand -> drives card pricing in quoteEngine (cfg.ctrlBrand).
+  // Option objects carry the exact catalog brand string (诺瓦 Novastar / 灰度 Huidu
+  // / 卡莱特 Colorlight); fall back to a label parse for safety.
+  var cs = needs.controlSystem;
+  base.ctrlBrand = (cs && typeof cs === 'object' && cs.brand) ? cs.brand : mapControlBrand(cs);
+
+  // Connection type (hard / soft) -> steers rental model selection in recommend.js.
+  var ct = needs.connectionType;
+  var connKind = (ct && typeof ct === 'object' && ct.kind) ? ct.kind : mapConnKind(ct);
+  base.connHint = (connKind === 'hard' || connKind === 'soft') ? connKind : null;
+
   base.confidence = 'high';
   return base;
+}
+
+/* control-system label (or object) -> catalog brand string used by controllers[] */
+function mapControlBrand(s) {
+  s = String(s || '');
+  if (/诺瓦|novastar/i.test(s)) return '诺瓦 Novastar';
+  if (/灰度|huidu/i.test(s)) return '灰度 Huidu';
+  if (/卡莱特|colorlight/i.test(s)) return '卡莱特 Colorlight';
+  return '诺瓦 Novastar';
+}
+/* connection label (or object) -> 'hard' | 'soft' (language-agnostic) */
+function mapConnKind(s) {
+  s = String(s || '');
+  if (/硬|hard|rigid|cableada|filiare|rígida|rigide/i.test(s)) return 'hard';
+  if (/软|soft|flex|modular|souple|flexível/i.test(s)) return 'soft';
+  return null;
 }
 
 /* ---- full pipeline: needs -> recommendation -> quote ---- */

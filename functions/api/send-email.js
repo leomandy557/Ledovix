@@ -127,7 +127,7 @@ export async function onRequest({ request, env }) {
 
 function fmtVal(v) {
   if (v === null || v === undefined || v === '') return '-';
-  if (typeof v === 'object') return v.display || JSON.stringify(v);
+  if (typeof v === 'object') return v.label !== undefined ? v.label : (v.display || JSON.stringify(v));
   return String(v);
 }
 
