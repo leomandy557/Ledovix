@@ -1693,7 +1693,7 @@ function leadNoteText(state, detail){
 }
 
 /* ============================================================
-   AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
+   AUTO LEAD EMAIL  (POST /api/send-email -> Resend HTTP API -> Leo)
    Sends the customer's basics + the reference plan (filled Excel)
    as an attachment. The on-page confirmation is shown in #leadStatusNote.
    ============================================================ */
@@ -1731,9 +1731,20 @@ function notifyLead(res){
     if(r.ok && j && j.ok){
       setStatus('sent');
     } else {
-      const reason = (j && j.error)
-        ? j.error
-        : ('server returned ' + r.status + ' (' + (ct.indexOf('application/json') !== -1 ? 'empty/invalid JSON' : 'not JSON — function aborted, likely CPU/timeout limit') + ')');
+      let reason;
+      if (j && j.error) {
+        reason = j.error;
+      } else if (r.status === 502 && ct.indexOf('application/json') === -1) {
+        // Cloudflare returned a raw 502 HTML page instead of our JSON. That means
+        // the edge killed the function — almost always an outbound call to the email
+        // API (api.resend.com) being blocked on a custom domain (Bot Fight Mode /
+        // WAF / Zero Trust egress policy). Give an actionable hint.
+        reason = 'Cloudflare 返回 502 且非 JSON：边缘节点拦截了对邮件 API(api.resend.com) 的出站请求。' +
+          '若使用自定义域名，请在 Cloudflare 后台关闭 Bot Fight Mode / 检查 WAF 与 Zero Trust 出站策略；' +
+          '或改用 https://ledovix.pages.dev 验证邮件功能。';
+      } else {
+        reason = 'server returned ' + r.status + ' (' + (ct.indexOf('application/json') !== -1 ? 'empty/invalid JSON' : 'not JSON') + ')';
+      }
       console.error('[send-email] failed:', reason);
       setStatus('failed', reason);
     }
