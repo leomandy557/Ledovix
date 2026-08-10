@@ -143,7 +143,7 @@ function buildText(needs, quoteText, quote, attachment) {
   L.push('  Company: ' + fmtVal(n.company));
   L.push('');
   L.push('Requirements:');
-  ['scenario', 'screenType', 'screenSize', 'installMethod', 'viewingDistance'].forEach(function (k) {
+  ['scenario', 'screenType', 'screenSize', 'installMethod', 'controlSystem', 'connectionType', 'viewingDistance'].forEach(function (k) {
     if (n[k]) L.push('  ' + k + ' : ' + fmtVal(n[k]));
   });
   L.push('');
@@ -181,6 +181,8 @@ function buildHtml(needs, quoteText, quote, attachment) {
     ['Scenario', fmtVal(n.scenario)],
     ['Screen size', fmtVal(n.screenSize)],
     ['Install', fmtVal(n.installMethod)],
+    ['Control system', fmtVal(n.controlSystem)],
+    ['Connection', fmtVal(n.connectionType)],
     ['Viewing distance', fmtVal(n.viewingDistance)],
   ];
   let contactRows = '';

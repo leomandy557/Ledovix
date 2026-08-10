@@ -364,6 +364,22 @@ body{
   border-color:var(--brand);background:var(--brand-bg);
   transform:translateX(4px);
 }
+/* MC option with a small gray sub-label (e.g. hard/soft connection benefits) */
+.chat-option-btn.has-note{
+  display:flex;flex-direction:column;gap:0.15rem;align-items:flex-start;
+}
+.chat-option-main{font-weight:600;font-size:0.82rem;line-height:1.2}
+.chat-option-note{
+  font-size:0.7rem;font-weight:500;line-height:1.25;color:var(--text-muted);
+}
+/* Per-question "Other / 自定义" custom option — visually distinct */
+.chat-option-custom{
+  border-style:dashed;border-color:var(--brand-border);
+  color:var(--brand);font-style:italic;background:#fff;
+}
+.chat-option-custom:hover{
+  background:var(--brand-bg);border-color:var(--brand);
+}
 .chat-typing{
   display:flex;gap:0.35rem;padding:0.75rem 1rem;
   background:var(--bg-card);border-radius:16px;
@@ -996,25 +1012,9 @@ const solutions = [
   {emoji:'🎬',title:'Broadcast & TV Studios',desc:'Ultra-fine pitch displays for virtual production and broadcasting.'},
 ];
 
-const conversationFlow = [
-  {id:'scenario',question:"Hi there! 👋 I'm Leo, your LED display consultant at LEDOVIX. To get started — where will this screen be used?",field:'scenario',options:[
-    '🏢 Indoor',
-    '🌤️ Outdoor',
-  ]},
-  {id:'installMethod',question:"Great. How do you plan to install the display?",field:'installMethod',options:[
-    '🔩 Fixed installation (wall-mounted, embedded)',
-    '🦶 Floor-standing (mobile stand, ground support)',
-  ]},
-  {id:'screenSize',question:"What dimensions are you looking for? Please enter the width and height of the screen.",field:'screenSize',isCustom:true,placeholder:'e.g. 4m × 3m, or 6m wide × 4m high'},
-  {id:'viewingDistance',question:"Last question — how far away will your audience typically be from the screen? This is crucial for me to determine the optimal pixel pitch.",field:'viewingDistance',options:[
-    '🔍 Very close (< 2m) — need ultra fine pitch (P1.2-P1.8)',
-    '📏 Close (2-5m) — fine pitch (P1.8-P2.5)',
-    '🪟 Medium (5-10m) — standard pitch (P2.5-P4)',
-    '🔭 Far (10-20m) — large pitch (P5-P8)',
-    '🏟️ Very far (20m+) — billboard pitch (P10+)',
-  ]},
-  {id:'contact',question:"Perfect! I now have all the technical details I need. Could you share your contact info so I can send you the tailored quote?",field:'contact',isContact:true},
-];
+// NOTE: The active, localized conversation flow lives in getLocalizedFlow()
+// (below). This older `conversationFlow` literal has been removed to avoid
+// duplicate/divergent flow definitions.
 
 // ==================== AI CONFIGURATION ====================
 // 🔒 SECURE SETUP: The DashScope API key is NOT stored here. It lives server-side
@@ -1203,22 +1203,20 @@ function startChat(){
   document.querySelector('.chat-header-info span').textContent = t('chat.online');
 
   updateProgress();
-  setInputEnabled(true);
 
-  // Ensure the AI chat input is always available (hybrid: options + free chat)
+  // Button-primary guided flow: the bottom free-text AI box is hidden. All input
+  // happens via option buttons + the per-question "Other" inline input, so the
+  // free-text box must not be shown or steal focus.
   const inputBar = document.getElementById('chatInputBar');
-  if(inputBar) inputBar.style.display = '';
+  if(inputBar) inputBar.style.display = 'none';
 
-  // Hybrid mode: show a FIXED greeting (no API call -> saves cost) and then the
-  // first option question. The option quick-replies stay available at the bottom
-  // of the chat, while the input bar lets customers also chat with Leo freely.
+  // Show a FIXED greeting (no API call -> saves cost) and then the first option
+  // question. Option buttons stay available at the bottom of the chat.
   const flow = getActiveFlow();
   addBotMessage(LEO_GREETING[currentLang] || LEO_GREETING.en);
   addBotMessage(flow[0].question, flow[0].options, flow[0].id);
   currentStep = 0;
   updateProgress();
-  const input = document.getElementById('chatTextInput');
-  if(input) input.focus();
 }
 
 function addBotMessage(text, options, stepId){
@@ -1266,9 +1264,9 @@ function renderMessages(){
     //  see below — so they stay available even while chatting with Leo.)
   });
 
-  // Sticky quick-reply options for the CURRENT step.
-  // Only shown in classic/fallback mode (see showScriptedOptions) — when Leo
-  // is driving the conversation these would duplicate the question Leo already asked.
+  // Sticky quick-reply options for the CURRENT step — the primary input method.
+  // Each MC step also gets a localized "Other / 自定义" custom option as its LAST
+  // choice, which reveals an inline free-text box (replacing the hidden bottom AI bar).
   if(!typing && showScriptedOptions()){
     const flow = getActiveFlow();
     if(currentStep < flow.length){
@@ -1278,12 +1276,32 @@ function renderMessages(){
         optsDiv.className = 'chat-options chat-options-sticky';
         optsDiv.style.animation = 'msgIn 0.3s ease-out 0.2s both';
         step.options.forEach(opt=>{
+          const isObj = opt && typeof opt === 'object';
+          const label = isObj ? (opt.label || '') : opt;
+          const note = isObj ? opt.note : null;
           const btn = document.createElement('button');
-          btn.className = 'chat-option-btn';
-          btn.textContent = opt;
+          btn.className = 'chat-option-btn' + (note ? ' has-note' : '');
+          if(note){
+            const main = document.createElement('span');
+            main.className = 'chat-option-main';
+            main.textContent = label;
+            const sub = document.createElement('span');
+            sub.className = 'chat-option-note';
+            sub.textContent = note;
+            btn.appendChild(main);
+            btn.appendChild(sub);
+          } else {
+            btn.textContent = label;
+          }
           btn.onclick = ()=>handleOptionClick(opt);
           optsDiv.appendChild(btn);
         });
+        // Per-question custom last option (inline free text instead of bottom AI box)
+        const customBtn = document.createElement('button');
+        customBtn.className = 'chat-option-btn chat-option-custom';
+        customBtn.textContent = step.customLabel || t('flow.customOption');
+        customBtn.onclick = ()=>handleCustomOption(step);
+        optsDiv.appendChild(customBtn);
         container.appendChild(optsDiv);
       }
     }
@@ -1293,21 +1311,40 @@ function renderMessages(){
   container.scrollTop = container.scrollHeight;
 }
 
-// Single source of truth for showing the scripted quick-reply buttons.
-// They are ONLY used in classic / fallback mode. When Leo (AI) is actively
-// driving the conversation we hide them — otherwise Leo's question and the
-// scripted buttons would both appear for the same step (the "question asked
-// twice" bug). Exactly one agent asks questions at a time.
+// Single source of truth for showing the scripted option buttons.
+// We run a BUTTON-PRIMARY guided flow: the option buttons are always the input
+// mechanism, and the bottom free-text AI box is hidden (per product decision).
+// The AI is still used for conversation re-translation on language switch.
 function showScriptedOptions(){
-  return !AI_CONFIG.enabled || fallbackActive;
+  return true;
 }
 
 function handleOptionClick(option){
   const flow = getActiveFlow();
   const step = flow[currentStep];
-  addUserMessage(option);
-  if(step.field) collectedNeeds[step.field] = option;
+  const isObj = option && typeof option === 'object';
+  const label = isObj ? (option.label || JSON.stringify(option)) : option;
+  addUserMessage(label);
+  if(step.field){
+    if(step.id === 'screenSize' && option && typeof option === 'object' && option.w !== undefined){
+      collectedNeeds.screenSize = {width:option.w, height:option.h, display: option.label};
+    } else {
+      collectedNeeds[step.field] = label;
+    }
+  }
   advanceConversation();
+}
+
+// Per-question "Other / 自定义" option. Replaces the hidden bottom AI box:
+// clicking it reveals an inline free-text input for the CURRENT step.
+function handleCustomOption(step){
+  const optsDiv = document.querySelector('.chat-options-sticky');
+  if(optsDiv) optsDiv.remove();
+  if(step.customAction === 'showScreenSizeInput'){
+    showScreenSizeInput();
+  } else {
+    showCustomInput(step.placeholder || t('flow.customPlaceholder'));
+  }
 }
 
 // Kept for any future custom single-input steps
@@ -1445,10 +1482,7 @@ function advanceConversation(){
     hideTyping();
     const step = flow[nextStep];
     currentStep = nextStep;
-    if(step.id === 'screenSize'){
-      addBotMessage(step.question, undefined, step.id);
-      showScreenSizeInput();
-    } else if(step.isCustom){
+    if(step.isCustom){
       addBotMessage(step.question, undefined, step.id);
       showCustomInput(step.placeholder||'Type your answer...');
     } else {
@@ -1562,6 +1596,8 @@ function showSummary(){
     scenario:t('summary.labels.scenario'),
     installMethod:t('summary.labels.installMethod'),
     screenSize:t('summary.labels.screenSize'),
+    controlSystem:t('summary.labels.controlSystem'),
+    connectionType:t('summary.labels.connectionType'),
     viewingDistance:t('summary.labels.viewingDistance'),
   };
   let html = '<div class="summary-req"><h5>'+t('summary.requirements')+'</h5>';
@@ -1751,6 +1787,8 @@ function buildQuotationMap(res){
     (cfg.model ? ' ' + cfg.model : '');
   map.product_subtitle = cfg.typeName ? (cfg.typeName.cn || cfg.typeName.en) : '';
   map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
+  map.control_system = n.controlSystem || '-';
+  map.connection_type = n.connectionType || '-';
   map.pixel_pitch = cfg.pitch ? ('P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm') : '-';
   if(geo && geo.pxW && geo.pxH) map.resolution = Math.round(geo.pxW) + ' × ' + Math.round(geo.pxH) + ' px';
   else if(geo && geo.totalPx) map.resolution = Math.round(geo.totalPx/1e6) + ' M pixels';
@@ -1815,7 +1853,7 @@ const i18n = {
     'leo.role':'Senior LED Solutions Consultant','leo.desc':"I'm here to understand your project needs and find the perfect LED display solution for you.",
     'summary.title':'需求已采集完成','summary.sub':'Needs Collected Successfully',
     'summary.labels.scenario':'Usage Scenario','summary.labels.installMethod':'Installation Method',
-    'summary.labels.screenSize':'Screen Dimensions (W×H)','summary.labels.viewingDistance':'Viewing Distance',
+    'summary.labels.screenSize':'Screen Dimensions (W×H)','summary.labels.controlSystem':'Control System','summary.labels.connectionType':'Connection Type','summary.labels.viewingDistance':'Viewing Distance',
     'summary.requirements':'📋 Customer Requirements','summary.contact':'📞 Contact Info',
     'summary.notice':'⚡ The quote will be generated and sent to your email. Our team will follow up within 24 hours.',
     'summary.reset':'← Start New Consultation',
@@ -1838,17 +1876,27 @@ const i18n = {
     'flow.installMethod.q':'Great. How do you plan to install the display?',
     'flow.installMethod.o1':'🔩 Fixed installation (wall-mounted, embedded)',
     'flow.installMethod.o2':'🦶 Floor-standing (mobile stand, ground support)',
-    'flow.screenSize.q':'What dimensions are you looking for? Please enter the width and height of the screen.',
+    'flow.screenSize.q':"What screen size do you need? Pick a standard size below, or choose “Custom size” to enter your own.",
     'flow.screenSize.ph':'e.g. 4m × 3m, or 6m wide × 4m high',
     'flow.screenSize.width':'Width (m)',
     'flow.screenSize.height':'Height (m)',
     'flow.screenSize.snap':'Snapped to standard size: {size}',
-    'flow.viewingDistance.q':"Last question — how far away will your audience typically be from the screen? This is crucial for me to determine the optimal pixel pitch.",
-    'flow.viewingDistance.o1':'🔍 Very close (< 2m) — need ultra fine pitch (P1.2-P1.8)',
-    'flow.viewingDistance.o2':'📏 Close (2-5m) — fine pitch (P1.8-P2.5)',
-    'flow.viewingDistance.o3':'🪟 Medium (5-10m) — standard pitch (P2.5-P4)',
-    'flow.viewingDistance.o4':'🔭 Far (10-20m) — large pitch (P5-P8)',
-    'flow.viewingDistance.o5':'🏟️ Very far (20m+) — billboard pitch (P10+)',
+    'flow.screenSize.custom':'✏️ Custom size (enter W × H)',
+    'flow.controlSystem.q':'Which control system do you prefer?',
+    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.connection.q':'Hard-wired or soft (modular) connection?',
+    'flow.connection.o1':'🔗 Hard-wired connection',
+    'flow.connection.o1note':'Lower cost · very stable signal · best for fixed installations',
+    'flow.connection.o2':'🔌 Soft / modular connection',
+    'flow.connection.o2note':'Flexible · quick to maintain/swap · best for rental & staging',
+    'flow.viewingDistance.q':"Last question — how far away will your audience typically be from the screen? This sets the optimal pixel pitch.",
+    'flow.viewingDistance.o1':'🔍 Very close (< 2m) · pitch P1.2–P1.8',
+    'flow.viewingDistance.o2':'📏 Close (2–5m) · pitch P1.8–P2.5',
+    'flow.viewingDistance.o3':'🪟 Medium (5–10m) · pitch P2.5–P4',
+    'flow.viewingDistance.o4':'🔭 Far (10–20m) · pitch P5–P8',
+    'flow.viewingDistance.o5':'🏟️ Very far (20m+) · pitch P10+',
+    'flow.customOption':'✍️ Other (type your answer)',
+    'flow.customPlaceholder':'Type your answer here…',
     'flow.contact.q':"Perfect! I now have all the technical details I need. Could you share your contact info so I can send you the tailored quote?",
     'flow.complete':"Thank you so much! 🎉 I've gathered everything I need. I'll now prepare a tailored LED display solution and quote for you. You'll receive it shortly!",
     'footer.desc':'Professional LED display solutions provider. Making your vision brilliantly displayed.',
@@ -1868,7 +1916,7 @@ const i18n = {
     'leo.role':'Consultor Senior de Soluciones LED','leo.desc':'Estoy aquí para entender las necesidades de tu proyecto y encontrar la solución LED perfecta.',
     'summary.title':'需求已采集完成','summary.sub':'Needs Collected Successfully',
     'summary.labels.scenario':'Escenario de Uso','summary.labels.installMethod':'Método de Instalación',
-    'summary.labels.screenSize':'Dimensiones (An×Al)','summary.labels.viewingDistance':'Distancia de Visionado',
+    'summary.labels.screenSize':'Dimensiones (An×Al)','summary.labels.controlSystem':'Sistema de Control','summary.labels.connectionType':'Conexión','summary.labels.viewingDistance':'Distancia de Visionado',
     'summary.requirements':'📋 Requisitos del Cliente','summary.contact':'📞 Información de Contacto',
     'summary.notice':'⚡ La cotización será generada y enviada a tu correo. Nuestro equipo te contactará en 24 horas.',
     'summary.reset':'← Nueva Consulta',
@@ -1887,18 +1935,28 @@ const i18n = {
     'flow.installMethod.q':'Genial. ¿Cómo planeas instalar la pantalla?',
     'flow.installMethod.o1':'🔩 Instalación fija (montaje en pared, empotrado)',
     'flow.installMethod.o2':'🦶 De pie (soporte móvil, base en el suelo)',
-    'flow.screenSize.q':'¿Qué dimensiones buscas? Por favor ingresa el ancho y alto de la pantalla.',
+    'flow.screenSize.q':'¿Qué tamaño de pantalla necesitas? Elige un tamaño estándar abajo, o “Tamaño personalizado” para introducir el tuyo.',
     'flow.screenSize.ph':'ej. 4m × 3m, o 6m de ancho × 4m de alto',
     'flow.screenSize.width':'Ancho (m)',
     'flow.screenSize.height':'Alto (m)',
     'flow.screenSize.snap':'Ajustado a tamaño estándar: {size}',
-    'flow.viewingDistance.q':'Última pregunta — ¿a qué distancia estará tu audiencia de la pantalla? Esto es crucial para determinar el pixel pitch óptimo.',
-    'flow.viewingDistance.o1':'🔍 Muy cerca (< 2m) — pitch ultra fino (P1.2-P1.8)',
-    'flow.viewingDistance.o2':'📏 Cerca (2-5m) — pitch fino (P1.8-P2.5)',
-    'flow.viewingDistance.o3':'🪟 Medio (5-10m) — pitch estándar (P2.5-P4)',
-    'flow.viewingDistance.o4':'🔭 Lejos (10-20m) — pitch grande (P5-P8)',
-    'flow.viewingDistance.o5':'🏟️ Muy lejos (20m+) — pitch publicitario (P10+)',
+    'flow.screenSize.custom':'✏️ Tamaño personalizado (ancho × alto)',
+    'flow.controlSystem.q':'¿Qué sistema de control prefieres?',
+    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.connection.q':'¿Conexión cableada (rígida) o modular (blanda)?',
+    'flow.connection.o1':'🔗 Conexión cableada (rígida)',
+    'flow.connection.o1note':'Menor coste · señal muy estable · ideal para instalaciones fijas',
+    'flow.connection.o2':'🔌 Conexión modular (blanda)',
+    'flow.connection.o2note':'Flexible · fácil de mantener/cambiar · ideal para alquiler y escenarios',
+    'flow.viewingDistance.q':'Última pregunta — ¿a qué distancia estará tu audiencia? Esto define el pixel pitch óptimo.',
+    'flow.viewingDistance.o1':'🔍 Muy cerca (< 2m) · pitch P1.2–P1.8',
+    'flow.viewingDistance.o2':'📏 Cerca (2-5m) · pitch P1.8–P2.5',
+    'flow.viewingDistance.o3':'🪟 Medio (5-10m) · pitch P2.5–P4',
+    'flow.viewingDistance.o4':'🔭 Lejos (10-20m) · pitch P5–P8',
+    'flow.viewingDistance.o5':'🏟️ Muy lejos (20m+) · pitch P10+',
     'flow.contact.q':'¡Perfecto! Ya tengo todos los detalles técnicos. ¿Podrías compartir tus datos de contacto para enviarte la cotización personalizada?',
+    'flow.customOption':'✍️ Otro (escribe tu respuesta)',
+    'flow.customPlaceholder':'Escribe tu respuesta aquí…',
     'flow.complete':'¡Muchas gracias! 🎉 He reunido todo lo necesario. Ahora prepararé una solución LED personalizada y te la enviaré pronto.',
     'footer.desc':'Proveedor profesional de soluciones de pantallas LED. Haciendo brillar tu visión.',
     'footer.products':'Productos','footer.company':'Empresa','footer.contact':'Contacto',
@@ -1917,7 +1975,7 @@ const i18n = {
     'leo.role':'Consultor Sênior de Soluções LED','leo.desc':'Estou aqui para entender as necessidades do seu projeto e encontrar a solução LED perfeita.',
     'summary.title':'需求已采集完成','summary.sub':'Needs Collected Successfully',
     'summary.labels.scenario':'Cenário de Uso','summary.labels.installMethod':'Método de Instalação',
-    'summary.labels.screenSize':'Dimensões (L×A)','summary.labels.viewingDistance':'Distância de Visualização',
+    'summary.labels.screenSize':'Dimensões (L×A)','summary.labels.controlSystem':'Sistema de Controle','summary.labels.connectionType':'Conexão','summary.labels.viewingDistance':'Distância de Visualização',
     'summary.requirements':'📋 Requisitos do Cliente','summary.contact':'📞 Informações de Contato',
     'summary.notice':'⚡ O orçamento será gerado e enviado para seu e-mail. Nossa equipe fará o acompanhamento em 24 horas.',
     'summary.reset':'← Nova Consulta',
@@ -1936,18 +1994,28 @@ const i18n = {
     'flow.installMethod.q':'Ótimo. Como você planeja instalar o painel?',
     'flow.installMethod.o1':'🔩 Instalação fixa (montagem na parede, embutido)',
     'flow.installMethod.o2':'🦶 De chão (suporte móvel, base no solo)',
-    'flow.screenSize.q':'Quais dimensões você procura? Por favor, insira a largura e a altura da tela.',
+    'flow.screenSize.q':'Qual tamanho de tela você precisa? Escolha um tamanho padrão abaixo, ou “Tamanho personalizado” para inserir o seu.',
     'flow.screenSize.ph':'ex. 4m × 3m, ou 6m de largura × 4m de altura',
     'flow.screenSize.width':'Largura (m)',
     'flow.screenSize.height':'Altura (m)',
     'flow.screenSize.snap':'Ajustado ao tamanho padrão: {size}',
-    'flow.viewingDistance.q':'Última pergunta — a que distância seu público estará da tela? Isso é crucial para determinar o pixel pitch ideal.',
-    'flow.viewingDistance.o1':'🔍 Muito perto (< 2m) — pitch ultra fino (P1.2-P1.8)',
-    'flow.viewingDistance.o2':'📏 Perto (2-5m) — pitch fino (P1.8-P2.5)',
-    'flow.viewingDistance.o3':'🪟 Médio (5-10m) — pitch padrão (P2.5-P4)',
-    'flow.viewingDistance.o4':'🔭 Longe (10-20m) — pitch grande (P5-P8)',
-    'flow.viewingDistance.o5':'🏟️ Muito longe (20m+) — pitch outdoor (P10+)',
+    'flow.screenSize.custom':'✏️ Tamanho personalizado (largura × altura)',
+    'flow.controlSystem.q':'Qual sistema de controle você prefere?',
+    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.connection.q':'Conexão cabeada (rígida) ou modular (flexível)?',
+    'flow.connection.o1':'🔗 Conexão cabeada (rígida)',
+    'flow.connection.o1note':'Menor custo · sinal muito estável · ideal para instalações fixas',
+    'flow.connection.o2':'🔌 Conexão modular (flexível)',
+    'flow.connection.o2note':'Flexível · fácil manutenção/troca · ideal para aluguel e eventos',
+    'flow.viewingDistance.q':'Última pergunta — a que distância seu público estará da tela? Isso define o pixel pitch ideal.',
+    'flow.viewingDistance.o1':'🔍 Muito perto (< 2m) · pitch P1.2–P1.8',
+    'flow.viewingDistance.o2':'📏 Perto (2-5m) · pitch P1.8–P2.5',
+    'flow.viewingDistance.o3':'🪟 Médio (5-10m) · pitch P2.5–P4',
+    'flow.viewingDistance.o4':'🔭 Longe (10-20m) · pitch P5–P8',
+    'flow.viewingDistance.o5':'🏟️ Muito longe (20m+) · pitch P10+',
     'flow.contact.q':'Perfeito! Agora tenho todos os detalhes técnicos. Poderia compartilhar seus dados de contato para eu enviar o orçamento personalizado?',
+    'flow.customOption':'✍️ Outro (escreva sua resposta)',
+    'flow.customPlaceholder':'Escreva sua resposta aqui…',
     'flow.complete':'Muito obrigado! 🎉 Reuni tudo que preciso. Vou preparar uma solução LED personalizada e enviar para você em breve.',
     'footer.desc':'Fornecedor profissional de soluções de painéis LED. Fazendo sua visão brilhar.',
     'footer.products':'Produtos','footer.company':'Empresa','footer.contact':'Contato',
@@ -1966,7 +2034,7 @@ const i18n = {
     'leo.role':'Consultant Senior Solutions LED','leo.desc':'Je suis là pour comprendre les besoins de votre projet et trouver la solution LED parfaite.',
     'summary.title':'需求已采集完成','summary.sub':'Needs Collected Successfully',
     'summary.labels.scenario':'Scénario d\'Utilisation','summary.labels.installMethod':'Méthode d\'Installation',
-    'summary.labels.screenSize':'Dimensions (L×H)','summary.labels.viewingDistance':'Distance de Visionnage',
+    'summary.labels.screenSize':'Dimensions (L×H)','summary.labels.controlSystem':'Système de Contrôle','summary.labels.connectionType':'Connexion','summary.labels.viewingDistance':'Distance de Visionnage',
     'summary.requirements':'📋 Exigences du Client','summary.contact':'📞 Coordonnées',
     'summary.notice':'⚡ Le devis sera généré et envoyé à votre e-mail. Notre équipe vous contactera sous 24 heures.',
     'summary.reset':'← Nouvelle Consultation',
@@ -1985,18 +2053,28 @@ const i18n = {
     'flow.installMethod.q':'Très bien. Comment prévoyez-vous d\'installer l\'écran ?',
     'flow.installMethod.o1':'🔩 Installation fixe (montage mural, encastré)',
     'flow.installMethod.o2':'🦶 Sur pied (support mobile, base au sol)',
-    'flow.screenSize.q':'Quelles dimensions recherchez-vous ? Veuillez entrer la largeur et la hauteur de l\'écran.',
+    'flow.screenSize.q':'Quelle taille d\'écran faut-il ? Choisissez une taille standard ci-dessous, ou « Taille personnalisée » pour saisir la vôtre.',
     'flow.screenSize.ph':'ex. 4m × 3m, ou 6m de large × 4m de haut',
     'flow.screenSize.width':'Largeur (m)',
     'flow.screenSize.height':'Hauteur (m)',
     'flow.screenSize.snap':'Ajusté à la taille standard : {size}',
-    'flow.viewingDistance.q':'Dernière question — à quelle distance votre public sera-t-il de l\'écran ? C\'est crucial pour déterminer le pas de pixel optimal.',
-    'flow.viewingDistance.o1':'🔍 Très proche (< 2m) — pas ultra fin (P1.2-P1.8)',
-    'flow.viewingDistance.o2':'📏 Proche (2-5m) — pas fin (P1.8-P2.5)',
-    'flow.viewingDistance.o3':'🪟 Moyen (5-10m) — pas standard (P2.5-P4)',
-    'flow.viewingDistance.o4':'🔭 Loin (10-20m) — pas large (P5-P8)',
-    'flow.viewingDistance.o5':'🏟️ Très loin (20m+) — pas publicitaire (P10+)',
+    'flow.screenSize.custom':'✏️ Taille personnalisée (largeur × hauteur)',
+    'flow.controlSystem.q':'Quel système de contrôle préférez-vous ?',
+    'flow.controlSystem.o1':'Nova (诺瓦)','flow.controlSystem.o2':'Gray (灰度)','flow.controlSystem.o3':'Kailite (卡莱特)',
+    'flow.connection.q':'Connexion filaire (rigide) ou modulaire (souple) ?',
+    'flow.connection.o1':'🔗 Connexion filaire (rigide)',
+    'flow.connection.o1note':'Coût plus bas · signal très stable · idéal pour installations fixes',
+    'flow.connection.o2':'🔌 Connexion modulaire (souple)',
+    'flow.connection.o2note':'Flexible · entretien/échange rapide · idéal pour location & événements',
+    'flow.viewingDistance.q':'Dernière question — à quelle distance votre public sera-t-il de l\'écran ? Cela définit le pas de pixel optimal.',
+    'flow.viewingDistance.o1':'🔍 Très proche (< 2m) · pas P1.2–P1.8',
+    'flow.viewingDistance.o2':'📏 Proche (2-5m) · pas P1.8–P2.5',
+    'flow.viewingDistance.o3':'🪟 Moyen (5-10m) · pas P2.5–P4',
+    'flow.viewingDistance.o4':'🔭 Loin (10-20m) · pas P5–P8',
+    'flow.viewingDistance.o5':'🏟️ Très loin (20m+) · pas P10+',
     'flow.contact.q':'Parfait ! J\'ai maintenant tous les détails techniques. Pourriez-vous partager vos coordonnées pour que je vous envoie le devis personnalisé ?',
+    'flow.customOption':'✍️ Autre (écrivez votre réponse)',
+    'flow.customPlaceholder':'Écrivez votre réponse ici…',
     'flow.complete':'Merci beaucoup ! 🎉 J\'ai rassemblé tout ce dont j\'ai besoin. Je vais préparer une solution LED personnalisée et vous l\'envoyer bientôt.',
     'footer.desc':'Fournisseur professionnel de solutions d\'écrans LED. Faisant briller votre vision.',
     'footer.products':'Produits','footer.company':'Entreprise','footer.contact':'Contact',
@@ -2280,12 +2358,33 @@ function applyTranslations(){
 // Update conversationFlow dynamically based on language
 function getLocalizedFlow(){
   // Complete flow definition — some steps are conditionally skipped based on scenario.
-  // skipIf is evaluated against collectedNeeds.scenario after step 0 is answered.
+  // skipIf is evaluated against collectedNeeds after the relevant step is answered.
+  // Options may be plain strings OR objects {label, note?, w?, h?} (object options
+  // render a gray sub-label / carry structured size data).
+  // Every MC step gets a localized "Other / 自定义" custom option appended at render
+  // time (see renderMessages) — that is where free text replaces the bottom AI box.
   return [
     {id:'scenario',question:t('flow.scenario.q'),field:'scenario',options:[t('flow.scenario.o1'),t('flow.scenario.o2')]},
     {id:'screenType',question:t('flow.screenType.q'),field:'screenType',options:[t('flow.screenType.o1'),t('flow.screenType.o2'),t('flow.screenType.o3')]},
     {id:'installMethod',question:t('flow.installMethod.q'),field:'installMethod',options:[t('flow.installMethod.o1'),t('flow.installMethod.o2')],skipIf:function(){return isRentalScenario();}},
-    {id:'screenSize',question:t('flow.screenSize.q'),field:'screenSize',isCustom:true},
+    // Screen size: standard presets as buttons; the last "custom" option opens the
+    // W×H input (customAction) — keeps the original free-size box, button-primary.
+    {id:'screenSize',question:t('flow.screenSize.q'),field:'screenSize',
+      options:[
+        {label:'2.0m × 1.5m', w:2, h:1.5},
+        {label:'3.0m × 2.0m', w:3, h:2},
+        {label:'4.0m × 3.0m', w:4, h:3},
+        {label:'5.0m × 3.0m', w:5, h:3},
+        {label:'6.0m × 4.0m', w:6, h:4},
+        {label:'8.0m × 4.0m', w:8, h:4},
+        {label:'10.0m × 5.0m', w:10, h:5},
+      ],
+      customAction:'showScreenSizeInput', customLabel:t('flow.screenSize.custom')},
+    {id:'controlSystem',question:t('flow.controlSystem.q'),field:'controlSystem',options:[t('flow.controlSystem.o1'),t('flow.controlSystem.o2'),t('flow.controlSystem.o3')]},
+    {id:'connectionType',question:t('flow.connection.q'),field:'connectionType',options:[
+      {label:t('flow.connection.o1'), note:t('flow.connection.o1note')},
+      {label:t('flow.connection.o2'), note:t('flow.connection.o2note')},
+    ]},
     {id:'viewingDistance',question:t('flow.viewingDistance.q'),field:'viewingDistance',options:[t('flow.viewingDistance.o1'),t('flow.viewingDistance.o2'),t('flow.viewingDistance.o3'),t('flow.viewingDistance.o4'),t('flow.viewingDistance.o5')],skipIf:function(){return isOutdoorBillboard();}},
     {id:'contact',question:t('flow.contact.q'),field:'contact',isContact:true},
   ];
