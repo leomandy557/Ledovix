@@ -1668,7 +1668,7 @@ function renderBackendQuote(){
 /* ============================================================
    AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
    ============================================================ */
-function leadNoteText(state){
+function leadNoteText(state, detail){
   // Localized on-page text for the "email sent" notice (Item 2b).
   const M = {
     sending: {en:'📧 Sending inquiry email to our team…', pt:'📧 Enviando e-mail de consulta à nossa equipe…', es:'📧 Enviando correo de consulta a nuestro equipo…', fr:'📧 Envoi du courriel de demande à notre équipe…', zh:'📧 正在向团队发送询盘邮件…'},
@@ -1676,7 +1676,11 @@ function leadNoteText(state){
     failed:  {en:'⚠️ Could not auto-send the email — our team will follow up manually.', pt:'⚠️ Não foi possível enviar o e-mail automaticamente — nossa equipe entrará em contato.', es:'⚠️ No se pudo enviar el correo automáticamente — nuestro equipo hará seguimiento.', fr:'⚠️ Envoi automatique impossible — notre équipe suivra manuellement.', zh:'⚠️ 自动发送邮件失败，团队将手动跟进。'}
   };
   const m = M[state] || M.sending;
-  return m[currentLang] || m.en;
+  let txt = m[currentLang] || m.en;
+  if(state === 'failed' && detail){
+    txt += ' (' + (currentLang === 'zh' ? '原因' : 'reason') + ': ' + detail + ')';
+  }
+  return txt;
 }
 
 /* ============================================================
@@ -1708,8 +1712,16 @@ function notifyLead(res){
       body: JSON.stringify(payload)
     });
   }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-    .then(function(o){ setStatus(o.ok && o.j && o.j.ok ? 'sent' : 'failed'); })
-    .catch(function(){ setStatus('failed'); });
+    .then(function(o){
+      if(o.ok && o.j && o.j.ok){
+        setStatus('sent');
+      } else {
+        const reason = (o.j && o.j.error) ? o.j.error : ('HTTP ' + (o.ok ? '200' : '??') + ' but ok=false');
+        console.error('[send-email] failed:', reason);
+        setStatus('failed', reason);
+      }
+    })
+    .catch(function(e){ console.error('[send-email] request error:', e); setStatus('failed', 'network/request error'); });
 }
 
 // Fill SimpLED_quotation_template.xlsx with the customer info + reference plan,
