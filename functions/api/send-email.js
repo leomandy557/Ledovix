@@ -1,35 +1,21 @@
-// Cloudflare Pages Function — auto-send a lead/quote email to Leo via QQ SMTP
+// Cloudflare Pages Function — auto-send a lead/quote email to Leo.
 //
-// WHY THIS EXISTS:
-//   When a visitor finishes a LEDOVIX consultation, the frontend produces a
-//   quote. This server-side function emails that quote + the customer's contact
-//   details to the sales review inbox (REVIEW_EMAIL) so Leo's team can follow up.
-//   Doing it server-side keeps the QQ SMTP credentials out of the browser.
+// DELIVERY:
+//   PRIMARY  -> Resend (HTTP REST API). One HTTPS request, negligible CPU, so it
+//               never trips Cloudflare's 50ms CPU limit the way an SMTP+TLS
+//               handshake does. This is the reliable path on the free plan.
+//               Env: RESEND_API_KEY (required for primary), optional RESEND_FROM.
+//   FALLBACK -> QQ SMTP (inline worker-mailer in _wm.js). Kept for users who
+//               prefer QQ, but unreliable on the free plan (CPU/timeout -> 502).
+//               Env: QQ_SMTP_USER / QQ_SMTP_PASS / REVIEW_EMAIL.
 //
-// TRIGGERED BY:
-//   The frontend calls same-origin POST "/api/send-email" (see index.html ->
-//   notifyLead()) with: { needs, quoteText, quote, attachment? } where
-//   attachment is { filename, content(base64), mimeType } — the filled Excel.
+// WHY SERVER-SIDE:
+//   Keeps email credentials out of the browser. The frontend POSTs same-origin
+//   to /api/send-email with { needs, quoteText, quote, attachment? }.
 //
-// ENV VARS (Cloudflare Dashboard -> Pages project -> Settings -> Environment
-// variables; set for BOTH Production and Preview):
-//   QQ_SMTP_USER  : QQ mail address used to SEND, e.g. 123456@qq.com
-//   QQ_SMTP_PASS  : QQ mail "授权码" (authorization code) — NOT the login password
-//   REVIEW_EMAIL  : recipient inbox, e.g. leo@ledovix.com
-//
-// DEPENDENCY NOTE (important — Cloudflare Pages gotcha):
-//   Cloudflare Pages Functions does NOT run `npm install` before bundling, so an
-//   npm package like `worker-mailer` cannot be resolved at build time and the
-//   deploy fails with "Could not resolve 'worker-mailer'". To avoid that, the
-//   worker-mailer source is inlined into the sibling file `_wm.js` (files
-//   starting with `_` are not treated as route handlers). This file only depends
-//   on the Cloudflare built-in `cloudflare:sockets`, which the bundler always
-//   externalizes, so the build succeeds with zero npm dependencies.
-//
-// COMPATIBILITY FLAG (still required):
-//   Settings -> Functions -> Compatibility flags -> add `nodejs_compat`.
-//   `_wm.js` uses Cloudflare TCP sockets (cloudflare:sockets) and Web Crypto
-//   globals which are available in that mode.
+// COMPATIBILITY FLAG:
+//   Settings -> Functions -> Compatibility flags -> add `nodejs_compat`
+//   (only needed for the SMTP fallback's cloudflare:sockets usage).
 
 import { WorkerMailer } from './_wm.js';
 
@@ -57,22 +43,7 @@ export async function onRequest({ request, env }) {
   const quote = payload && payload.quote ? payload.quote : {};
   const attachment = payload && payload.attachment ? payload.attachment : null;
 
-  const user = env.QQ_SMTP_USER;
-  const pass = env.QQ_SMTP_PASS;
   const to = env.REVIEW_EMAIL;
-
-  if (!user || !pass || !to) {
-    return json(
-      {
-        ok: false,
-        error:
-          'Server misconfigured: QQ_SMTP_USER / QQ_SMTP_PASS / REVIEW_EMAIL are not all set. ' +
-          'Add them in Cloudflare Pages -> Settings -> Environment variables.',
-      },
-      500
-    );
-  }
-
   const subject =
     'LEDOVIX 新咨询 / New Lead — ' +
     (needs.name || 'Unknown') +
@@ -81,66 +52,120 @@ export async function onRequest({ request, env }) {
   const text = buildText(needs, quoteText, quote, attachment);
   const html = buildHtml(needs, quoteText, quote, attachment);
 
-  const mail = {
-    from: { name: 'LEDOVIX Lead Bot', email: user },
-    to: { name: 'Leo', email: to },
-    subject,
-    text,
-    html,
-    attachments: attachment ? [attachment] : undefined,
-  };
-
-  // Try the two common QQ SMTP transports. Some Cloudflare edge nodes have
-  // trouble with implicit TLS on 465; STARTTLS on 587 often works better.
-  const attempts = [];
-  try {
-    attempts.push('465 TLS');
-    const result = await WorkerMailer.send(
-      {
-        host: 'smtp.qq.com',
-        port: 465,
-        secure: true, // implicit TLS on 465
-        authType: 'login',
-        credentials: { username: user, password: pass },
-        socketTimeoutMs: 15000,
-        responseTimeoutMs: 15000,
-      },
-      mail
-    );
-    return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:465' }, 200);
-  } catch (err465) {
-    console.warn('[send-email] 465 failed:', err465 && err465.message ? err465.message : String(err465));
+  // ---------- PRIMARY: Resend (reliable HTTP API) ----------
+  if (env.RESEND_API_KEY && to) {
     try {
-      attempts.push('587 STARTTLS');
+      const fromEmail = env.RESEND_FROM || 'LEDOVIX <onboarding@resend.dev>';
+      const body = {
+        from: fromEmail,
+        to: [to],
+        subject,
+        text,
+        html,
+      };
+      if (attachment) {
+        body.attachments = [
+          { filename: attachment.filename, content: attachment.content },
+        ];
+      }
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + env.RESEND_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => null);
+      if (r.ok && data && data.id) {
+        return json({ ok: true, via: 'resend', id: data.id }, 200);
+      }
+      // Resend returned an error JSON — log and fall through to SMTP.
+      console.warn('[send-email] Resend error:', r.status, JSON.stringify(data));
+    } catch (e) {
+      console.warn('[send-email] Resend request failed:', e && e.message ? e.message : String(e));
+    }
+  }
+
+  // ---------- FALLBACK: QQ SMTP (may 502 on free plan) ----------
+  const user = env.QQ_SMTP_USER;
+  const pass = env.QQ_SMTP_PASS;
+  if (user && pass && to) {
+    try {
       const result = await WorkerMailer.send(
         {
           host: 'smtp.qq.com',
-          port: 587,
-          secure: false, // plain socket, then STARTTLS
-          startTls: true,
+          port: 465,
+          secure: true,
           authType: 'login',
           credentials: { username: user, password: pass },
           socketTimeoutMs: 15000,
           responseTimeoutMs: 15000,
         },
-        mail
-      );
-      return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:587' }, 200);
-    } catch (err587) {
-      console.error('[send-email] both 465 and 587 failed:', err587);
-      return json(
         {
-          ok: false,
-          error:
-            'SMTP send failed (tried ' + attempts.join(' and ') + '). ' +
-            'Last error: ' + (err587 && err587.message ? err587.message : String(err587)) + '. ' +
-            'Check QQ_SMTP_PASS is the 16-character authorization code (not login password), ' +
-            'and that Cloudflare Functions compatibility flag `nodejs_compat` is enabled.',
-        },
-        502
+          from: { name: 'LEDOVIX Lead Bot', email: user },
+          to: { name: 'Leo', email: to },
+          subject,
+          text,
+          html,
+          attachments: attachment ? [attachment] : undefined,
+        }
       );
+      return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:465' }, 200);
+    } catch (err465) {
+      console.warn('[send-email] 465 failed:', err465 && err465.message ? err465.message : String(err465));
+      try {
+        const result = await WorkerMailer.send(
+          {
+            host: 'smtp.qq.com',
+            port: 587,
+            secure: false,
+            startTls: true,
+            authType: 'login',
+            credentials: { username: user, password: pass },
+            socketTimeoutMs: 15000,
+            responseTimeoutMs: 15000,
+          },
+          {
+            from: { name: 'LEDOVIX Lead Bot', email: user },
+            to: { name: 'Leo', email: to },
+            subject,
+            text,
+            html,
+            attachments: attachment ? [attachment] : undefined,
+          }
+        );
+        return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:587' }, 200);
+      } catch (err587) {
+        console.error('[send-email] both SMTP attempts failed:', err587);
+        return json(
+          {
+            ok: false,
+            error:
+              'SMTP send failed (tried 465 and 587). Last error: ' +
+              (err587 && err587.message ? err587.message : String(err587)) +
+              '. On the Cloudflare free plan, prefer Resend (set RESEND_API_KEY).',
+          },
+          502
+        );
+      }
     }
   }
+
+  // ---------- Neither path available ----------
+  const missing = [];
+  if (!to) missing.push('REVIEW_EMAIL');
+  if (!env.RESEND_API_KEY) missing.push('RESEND_API_KEY');
+  if (!user || !pass) missing.push('QQ_SMTP_USER/QQ_SMTP_PASS (fallback)');
+  return json(
+    {
+      ok: false,
+      error:
+        'Email not configured: missing ' + missing.join(', ') +
+        '. Set RESEND_API_KEY (recommended) in Cloudflare Pages -> Settings -> Environment variables.',
+    },
+    500
+  );
 }
 
 function fmtVal(v) {

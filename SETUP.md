@@ -3,23 +3,32 @@
 本仓库是一个 Cloudflare Pages 站点：静态前端（`index.html`）+ Pages Functions（`functions/api/*.js`）。
 自动发邮件功能由 `functions/api/send-email.js` 提供，前端在生成报价后调用它。
 
-## 1. 必需的三个环境变量（AI 无法代劳，必须在 Cloudflare 后台设置）
+## 1. 必需的环境变量（AI 无法代劳，必须在 Cloudflare 后台设置）
 
 Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment variables**，为 **Production 和 Preview 都添加**：
+
+### 主路径：Resend（推荐，Cloudflare 上最稳，免费 3000 封/月）
+
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| `RESEND_API_KEY` | Resend 的 API Key（resend.com 注册后生成，形如 `re_xxxx`） | `re_abc123...` |
+| `REVIEW_EMAIL` | 接收咨询邮件的邮箱 | `leo@ledovix.com` |
+| `RESEND_FROM` | （可选）发件人。不填则默认用 Resend 测试发件箱 `LEDOVIX <onboarding@resend.dev>`。若要显示你的品牌域名，需先在 Resend 验证该域名 | `LEDOVIX <leo@ledovix.com>` |
+
+> 只要设了 `RESEND_API_KEY`，函数就走 Resend 的 HTTP 接口发信，一次 HTTPS 请求、CPU 消耗极低，**不会触发 Cloudflare 免费版 50ms CPU 限制**，稳。
+
+### 回退路径：QQ SMTP（免费版可能 502，仅作兜底）
 
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | `QQ_SMTP_USER` | 用于**发送**邮件的 QQ 邮箱地址 | `123456@qq.com` |
 | `QQ_SMTP_PASS` | QQ 邮箱**授权码**（不是登录密码！需在 QQ 邮箱 → 设置 → 账户 → 开启 SMTP 服务后生成） | `abcdefghijklmnop` |
-| `REVIEW_EMAIL` | 接收咨询邮件的邮箱（Leo 的审核邮箱） | `leo@ledovix.com` |
 
-> ⚠️ `QQ_SMTP_PASS` 必须填「授权码」。填登录密码会报 `535` 认证失败。
+> ⚠️ `QQ_SMTP_PASS` 必须填「授权码」。填登录密码会报 `535` 认证失败。QQ SMTP 走 TCP+TLS，免费版常因 CPU/超时 502，故仅作 Resend 不可用时的兜底。
 
-## 2. 开启 nodejs_compat（必须）
+## 2. 兼容性标志（按需）
 
-**Settings → Functions → Compatibility flags → 添加 `nodejs_compat`**。
-
-`send-email.js` 用 `worker-mailer`，它通过 `cloudflare:sockets`（TCP sockets）连接 QQ SMTP；`nodejs_compat` 是启用 TCP sockets API 必需的兼容标志。没有这个 flag，函数在运行时会报 `cloudflare:sockets` 不可用或 SMTP 连接失败。
+**Settings → Functions → Compatibility flags → 添加 `nodejs_compat`** —— **仅当使用 QQ SMTP 回退路径时才需要**（它用 `cloudflare:sockets` 连 TCP）。只用 Resend 时可不填，但填上无害。
 
 ## 3. 构建设置
 
@@ -48,7 +57,7 @@ curl -X POST https://<your-project>.pages.dev/api/send-email \
   -d '{"needs":{"name":"Test"},"quoteText":"demo quote"}'
 ```
 
-若返回 `500 ... QQ_SMTP_USER / QQ_SMTP_PASS / REVIEW_EMAIL are not all set`，说明函数已上线、前端接线正确，只差填入三个环境变量。
+若返回 `500 ... Email not configured: missing RESEND_API_KEY, REVIEW_EMAIL`，说明函数已上线、前端接线正确，只差填入环境变量。先填 `RESEND_API_KEY` + `REVIEW_EMAIL` 即可走 Resend 主路径。
 
 ## 5. 故障排查 / 备选方案
 
