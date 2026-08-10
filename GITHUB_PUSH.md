@@ -4,8 +4,8 @@
 
 ```bash
 # 1. 克隆
-git clone https://github.com/leomandy557/ledovix.git
-cd ledovix
+git clone https://github.com/leomandy557/Ledovix.git
+cd Ledovix
 git checkout main
 
 # 2. 修改/新增代码（例如自动发邮件功能）
@@ -26,7 +26,7 @@ git push -u origin main
 - 在有 GitHub 连接器/凭证助手的环境中，`git push` 会自动用已登录账号的凭证，无需手动填 token。
 - 若提示需要凭证，可使用 Personal Access Token（需 `repo` 作用域）：
   ```bash
-  git remote set-url origin https://oauth2:<TOKEN>@github.com/leomandy557/ledovix.git
+  git remote set-url origin https://oauth2:<TOKEN>@github.com/leomandy557/Ledovix.git
   git push -u origin main
   ```
 
