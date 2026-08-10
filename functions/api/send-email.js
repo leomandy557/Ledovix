@@ -1,25 +1,20 @@
 // Cloudflare Pages Function — auto-send a lead/quote email to Leo.
 //
-// DELIVERY:
-//   PRIMARY  -> Resend (HTTP REST API). One HTTPS request, negligible CPU, so it
-//               never trips Cloudflare's CPU limit the way an SMTP+TLS handshake
-//               does. This is the reliable path on the free plan.
-//               Env: RESEND_API_KEY (required), optional RESEND_FROM, REVIEW_EMAIL.
-//   OPTIONAL FALLBACK -> QQ SMTP (inline worker-mailer in _wm.js). Disabled by
-//               default because on the free plan the outbound TCP+TLS handshake
-//               to smtp.qq.com is aborted by Cloudflare (HTTP 502). Enable only
-//               by setting ALLOW_QQ_SMTP=1 (and QQ_SMTP_USER/PASS), e.g. on a
-//               paid plan with higher CPU limits.
+// DELIVERY: Resend (HTTP REST API) only.
+//   One HTTPS request to https://api.resend.com/emails — negligible CPU, so it
+//   never trips Cloudflare's CPU limit. This is the reliable path on the free
+//   plan. (QQ SMTP over TCP+TLS is NOT used because Cloudflare aborts the
+//   outbound handshake with HTTP 502 on the free tier.)
 //
-// COMPATIBILITY FLAG:
-//   Settings -> Functions -> Compatibility flags -> add `nodejs_compat`
-//   (only needed if you enable the SMTP fallback's cloudflare:sockets usage).
+// ENVIRONMENT VARIABLES (set in Cloudflare Pages -> Settings -> Environment
+// variables, on the PRODUCTION scope for the live site):
+//   RESEND_API_KEY  (required) e.g. re_xxxx from resend.com
+//   REVIEW_EMAIL    (required) recipient, e.g. leo@ledovix.com
+//   RESEND_FROM     (optional) overrides the default onboarding@resend.dev sender
 //
-// IMPORTANT — environment variable SCOPE:
-//   Cloudflare Pages has separate Production / Preview env-var scopes. The live
-//   site (ledovix.com) reads PRODUCTION vars. A var set only on Preview will NOT
-//   be visible to the production function, which then reports RESEND_API_KEY as
-//   missing. Always set RESEND_API_KEY + REVIEW_EMAIL on BOTH scopes.
+// IMPORTANT: Cloudflare Pages has separate Production / Preview env-var scopes.
+// The live site reads PRODUCTION vars. A var set only on Preview is invisible to
+// the production function, which will then report RESEND_API_KEY as missing.
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
@@ -50,9 +45,26 @@ export async function onRequest({ request, env }) {
   const debug = {
     RESEND_API_KEY: hasResend,
     REVIEW_EMAIL: !!to,
-    ALLOW_QQ_SMTP: !!env.ALLOW_QQ_SMTP,
-    QQ_SMTP_USER: !!env.QQ_SMTP_USER,
+    RESEND_FROM: !!env.RESEND_FROM,
   };
+
+  // Clear error (JSON, never a 502 HTML page) when not configured.
+  if (!hasResend || !to) {
+    const missing = [];
+    if (!to) missing.push('REVIEW_EMAIL');
+    if (!hasResend) missing.push('RESEND_API_KEY');
+    return json(
+      {
+        ok: false,
+        error:
+          'Email not configured: missing ' + missing.join(', ') +
+          '. Set RESEND_API_KEY and REVIEW_EMAIL in Cloudflare Pages -> Settings -> Environment variables, ' +
+          'on the PRODUCTION scope (not only Preview), with the exact names.',
+        debug,
+      },
+      500
+    );
+  }
 
   const subject =
     'LEDOVIX 新咨询 / New Lead — ' +
@@ -62,111 +74,53 @@ export async function onRequest({ request, env }) {
   const text = buildText(needs, quoteText, quote, attachment);
   const html = buildHtml(needs, quoteText, quote, attachment);
 
-  // ---------- PRIMARY: Resend (reliable HTTP API) ----------
-  if (hasResend && to) {
-    try {
-      const fromEmail = env.RESEND_FROM || 'LEDOVIX <onboarding@resend.dev>';
-      const body = { from: fromEmail, to: [to], subject, text, html };
-      if (attachment) {
-        body.attachments = [
-          { filename: attachment.filename, content: attachment.content },
-        ];
-      }
-      const r = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + env.RESEND_API_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json().catch(() => null);
-      if (r.ok && data && data.id) {
-        return json({ ok: true, via: 'resend', id: data.id }, 200);
-      }
-      // Resend returned an error JSON — surface it clearly (never 502).
-      console.warn('[send-email] Resend error:', r.status, JSON.stringify(data));
-      return json(
-        {
-          ok: false,
-          via: 'resend',
-          error:
-            'Resend API error ' +
-            r.status +
-            ': ' +
-            (data && (data.message || JSON.stringify(data)) || 'unknown') +
-            '. Check that RESEND_API_KEY is valid and REVIEW_EMAIL is a verified/allowed recipient.',
-          debug,
-        },
-        502
-      );
-    } catch (e) {
-      console.warn('[send-email] Resend request failed:', e && e.message ? e.message : String(e));
-      return json(
-        {
-          ok: false,
-          via: 'resend',
-          error: 'Resend request failed: ' + (e && e.message ? e.message : String(e)),
-          debug,
-        },
-        502
-      );
+  try {
+    const fromEmail = env.RESEND_FROM || 'LEDOVIX <onboarding@resend.dev>';
+    const body = { from: fromEmail, to: [to], subject, text, html };
+    if (attachment) {
+      body.attachments = [
+        { filename: attachment.filename, content: attachment.content },
+      ];
     }
-  }
-
-  // ---------- OPTIONAL FALLBACK: QQ SMTP (only if explicitly enabled) ----------
-  if (env.ALLOW_QQ_SMTP && env.QQ_SMTP_USER && env.QQ_SMTP_PASS && to) {
-    try {
-      const { WorkerMailer } = await import('./_wm.js');
-      const result = await WorkerMailer.send(
-        {
-          host: 'smtp.qq.com',
-          port: 465,
-          secure: true,
-          authType: 'login',
-          credentials: { username: env.QQ_SMTP_USER, password: env.QQ_SMTP_PASS },
-          socketTimeoutMs: 15000,
-          responseTimeoutMs: 15000,
-        },
-        {
-          from: { name: 'LEDOVIX Lead Bot', email: env.QQ_SMTP_USER },
-          to: { name: 'Leo', email: to },
-          subject,
-          text,
-          html,
-          attachments: attachment ? [attachment] : undefined,
-        }
-      );
-      return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:465' }, 200);
-    } catch (err) {
-      console.error('[send-email] QQ SMTP failed:', err);
-      return json(
-        {
-          ok: false,
-          via: 'smtp.qq.com',
-          error: 'SMTP send failed: ' + (err && err.message ? err.message : String(err)),
-          debug,
-        },
-        502
-      );
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + env.RESEND_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => null);
+    if (r.ok && data && data.id) {
+      return json({ ok: true, via: 'resend', id: data.id }, 200);
     }
+    console.warn('[send-email] Resend error:', r.status, JSON.stringify(data));
+    return json(
+      {
+        ok: false,
+        via: 'resend',
+        error:
+          'Resend API error ' +
+          r.status +
+          ': ' +
+          (data && (data.message || JSON.stringify(data)) || 'unknown') +
+          '. Verify RESEND_API_KEY is valid and REVIEW_EMAIL is an allowed recipient.',
+        debug,
+      },
+      502
+    );
+  } catch (e) {
+    console.warn('[send-email] Resend request failed:', e && e.message ? e.message : String(e));
+    return json(
+      {
+        ok: false,
+        via: 'resend',
+        error: 'Resend request failed: ' + (e && e.message ? e.message : String(e)),
+        debug,
+      },
+      502
+    );
   }
-
-  // ---------- Neither path available: report clearly (never a 502 HTML page) ----------
-  const missing = [];
-  if (!to) missing.push('REVIEW_EMAIL');
-  if (!hasResend) missing.push('RESEND_API_KEY');
-  return json(
-    {
-      ok: false,
-      error:
-        'Email not configured: missing ' + missing.join(', ') +
-        '. Set RESEND_API_KEY (recommended) in Cloudflare Pages -> Settings -> Environment variables.' +
-        ' Make sure it is set on the PRODUCTION scope (not only Preview), with the exact name RESEND_API_KEY.',
-      debug,
-    },
-    500
-  );
 }
 
 function fmtVal(v) {
