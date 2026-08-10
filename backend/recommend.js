@@ -509,6 +509,16 @@ function recommendLocal(DB, input, options) {
   var spec = specOf(t, sel, W, H, units);
   var install = pickInstall(DB, t, need);
   var ctrlBrand = need.ctrlBrand || '诺瓦 Novastar';
+  var ctrlBrandEn = ctrlBrand.replace(/[一-鿿]/g, '').replace(/\s+/g, ' ').trim();
+  var INSTALL_EN = {
+    '挂墙': 'Wall-mounted',
+    '挂墙后维护': 'Wall-mounted (rear service)',
+    '弧形挂墙': 'Curved wall-mounted',
+    '落地移动支架': 'Floor-standing (mobile stand)',
+    '落地+斜撑': 'Floor-standing with braces',
+    '落地': 'Floor-standing'
+  };
+  var installEn = INSTALL_EN[install] || install;
 
   /* alternatives: one finer, one coarser */
   var byPitch = picked.pool.slice().sort(function (a, b) { return (a.m.pitch || 0) - (b.m.pitch || 0); });
@@ -554,10 +564,10 @@ function recommendLocal(DB, input, options) {
   }
   reasons.push(bilingual(
     '控制系统 ' + ctrlBrand + ' 出口型号，自动按 ' + (spec.totalPx / 1e6).toFixed(2) + 'M 像素匹配收发卡',
-    ctrlBrand + ' export-grade controllers, auto-matched to ' + (spec.totalPx / 1e6).toFixed(2) + 'M pixels'));
+    ctrlBrandEn + ' export-grade controllers, auto-matched to ' + (spec.totalPx / 1e6).toFixed(2) + 'M pixels'));
   reasons.push(bilingual(
     '安装方式 ' + install + '，包装 ' + (t.packing === 'flight' ? '航空箱' : '木箱') + '（出口标准）',
-    'Installation: ' + install + '; packing: ' + (t.packing === 'flight' ? 'flight cases' : 'wooden crates') + ' (export standard)'));
+    'Installation: ' + installEn + '; packing: ' + (t.packing === 'flight' ? 'flight cases' : 'wooden crates') + ' (export standard)'));
 
   var questions = [];
   if (!need.size && !isPoster(t)) questions.push(bilingual('屏幕的目标宽 × 高是多少米？', 'What width × height do you need, in metres?'));
@@ -588,6 +598,8 @@ function recommendLocal(DB, input, options) {
       ctrlMode: 'auto',
       ctrlBrand: ctrlBrand,
       installName: install,
+      installNameEn: installEn,
+      ctrlBrandEn: ctrlBrandEn,
       packing: t.packing || 'wooden',
       use: { cabinet:true, psu:true, powerbox:true, cables:true, install:true, crate:true, spare:true }
     },

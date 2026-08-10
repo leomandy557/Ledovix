@@ -32,6 +32,21 @@ To send emails to other recipients, please verify a domain at https://resend.com
 
 > 函数的 403 错误已带此提示（含域名验证链接），前端摘要面板会显示 `(reason: Resend API error 403: ... verify a domain ...)`。
 
+### 备份通道：BACKUP_WEBHOOK_URL（可选，强烈推荐）
+
+为防止邮件链路抖动导致线索丢失，`send-email.js` 支持一个**兜底备份通道**：只要设置了 `BACKUP_WEBHOOK_URL`，每次询盘都会（在邮件之前或之后）向该地址 POST 一份干净的 JSON 线索（联系人 + 需求 + 报价 + 报价正文）。
+
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| `BACKUP_WEBHOOK_URL` | （可选）通用 JSON Webhook，作为线索备份。支持 Discord / Google Chat / Slack Incoming Webhook / Make / Zapier / Telegram-via-Worker 桥接等 | `https://discord.com/api/webhooks/...` |
+
+**行为逻辑：**
+- 邮件成功 → 返回 `via:'resend'`（同时 `backedUp:true` 若备份也成功）。
+- 邮件失败/未配置，但备份 Webhook 成功 → 仍返回 **成功**（`via:'backup'`），前端显示「✅ Inquiry received — backed up for our team (email pending)」，线索不丢。
+- 两者都失败 → 返回失败，前端提示「⚠️ Could not auto-send the email — our team will follow up manually.」
+
+> 即使只设了 `BACKUP_WEBHOOK_URL` 而没设 Resend，也能保证线索落地（走备份通道）。推荐至少配置其一；两者都配置最稳。
+
 ### QQ SMTP（已移除）
 
 > 本项目早期版本用 QQ SMTP（`cloudflare:sockets` + `worker-mailer`）作兜底，但 Cloudflare 免费版对出站 TCP+TLS 常因 CPU/超时返回 **502**，且已被证实会杀掉函数。当前 `send-email.js` 为**纯 Resend 路径**，已彻底移除 QQ SMTP 依赖（`_wm.js` / `cloudflare:sockets` 不再被引用）。如需恢复，另行评估付费计划或 Mailchannels。

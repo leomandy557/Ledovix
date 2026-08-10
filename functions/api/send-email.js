@@ -1,20 +1,29 @@
-// Cloudflare Pages Function — auto-send a lead/quote email to Leo.
+// Cloudflare Pages Function — auto-send a lead/quote email to Leo, with an
+// optional backup webhook so a lead is never lost even if email fails.
 //
-// DELIVERY: Resend (HTTP REST API) only.
+// DELIVERY (primary): Resend (HTTP REST API) only.
 //   One HTTPS request to https://api.resend.com/emails — negligible CPU, so it
 //   never trips Cloudflare's CPU limit. This is the reliable path on the free
 //   plan. (QQ SMTP over TCP+TLS is NOT used because Cloudflare aborts the
 //   outbound handshake with HTTP 502 on the free tier.)
 //
+// BACKUP (optional, always-on fallback): if BACKUP_WEBHOOK_URL is set, the lead
+//   is also POSTed there (a generic JSON webhook — Discord / Google Chat / Slack
+//   incoming webhook / Make / Zapier / a Telegram-via-worker bridge, etc.). If
+//   email is unavailable, the backup alone still captures the lead, so the
+//   response is reported as a success (via:'backup').
+//
 // ENVIRONMENT VARIABLES (Cloudflare Pages -> Settings -> Environment variables,
 // PRODUCTION scope for the live site):
-//   RESEND_API_KEY  (required) e.g. re_xxxx from resend.com
-//   REVIEW_EMAIL    (required) recipient. In Resend TEST mode this MUST be the
-//                   Resend account owner email (e.g. leomandy557@gmail.com).
-//                   To send to any address (e.g. leo@ledovix.com), verify a
-//                   sending domain at https://resend.com/domains first.
+//   RESEND_API_KEY  (required for email) e.g. re_xxxx from resend.com
+//   REVIEW_EMAIL    (required for email) recipient. In Resend TEST mode this
+//                   MUST be the Resend account owner email (e.g.
+//                   leomandy557@gmail.com). To send to any address (e.g.
+//                   leo@ledovix.com), verify a sending domain at
+//                   https://resend.com/domains first.
 //   RESEND_FROM     (optional) sender; defaults to onboarding@resend.dev
 //                   (Resend's test sender, allowed in test mode).
+//   BACKUP_WEBHOOK_URL (optional) generic JSON webhook for lead backup.
 //
 // The fetch is guarded by an AbortController(10s) so the function ALWAYS returns
 // our own JSON (never a Cloudflare 502 HTML page), even if the upstream hangs.
@@ -43,34 +52,91 @@ export async function onRequest({ request, env }) {
   const quote = payload && payload.quote ? payload.quote : {};
   const attachment = payload && payload.attachment ? payload.attachment : null;
 
-  const to = env.REVIEW_EMAIL;
-  const hasResend = !!env.RESEND_API_KEY;
+  const hasResend = !!env.RESEND_API_KEY && !!env.REVIEW_EMAIL;
+  const backupUrl = env.BACKUP_WEBHOOK_URL || '';
   const debug = {
-    RESEND_API_KEY: hasResend,
-    REVIEW_EMAIL: !!to,
+    RESEND_API_KEY: !!env.RESEND_API_KEY,
+    REVIEW_EMAIL: !!env.REVIEW_EMAIL,
     RESEND_FROM: !!env.RESEND_FROM,
+    BACKUP_WEBHOOK_URL: !!backupUrl,
   };
 
-  // Clear error (JSON, never a 502 HTML page) when not configured.
-  if (!hasResend || !to) {
-    const missing = [];
-    if (!to) missing.push('REVIEW_EMAIL');
-    if (!hasResend) missing.push('RESEND_API_KEY');
+  // Nothing configured at all -> clear, actionable error (JSON, never 502).
+  if (!hasResend && !backupUrl) {
     return json(
       {
         ok: false,
         error:
-          'Email not configured: missing ' + missing.join(', ') +
-          '. Set RESEND_API_KEY and REVIEW_EMAIL in Cloudflare Pages -> Settings -> Environment variables, ' +
-          'on the PRODUCTION scope (not only Preview), with the exact names.',
+          'No delivery channel configured. Set RESEND_API_KEY + REVIEW_EMAIL (email) ' +
+          'and/or BACKUP_WEBHOOK_URL (lead backup) in Cloudflare Pages -> Settings -> ' +
+          'Environment variables (PRODUCTION scope).',
         debug,
       },
       500
     );
   }
 
+  // 1) Try primary email delivery.
+  let emailResult = null;
+  if (hasResend) {
+    emailResult = await sendResendEmail({
+      needs, quoteText, quote, attachment, env,
+    });
+  }
+
+  // 2) If email did not succeed and a backup webhook is configured, capture the
+  //    lead there so it is never lost.
+  let backupResult = null;
+  if ((!emailResult || !emailResult.ok) && backupUrl) {
+    backupResult = await sendBackup(backupUrl, { needs, quoteText, quote, attachment });
+  }
+
+  // 3) Compose the outcome.
+  if (emailResult && emailResult.ok) {
+    return json(
+      {
+        ok: true,
+        via: 'resend',
+        id: emailResult.id,
+        backedUp: !!(backupResult && backupResult.ok),
+        backupVia: backupResult && backupResult.ok ? 'webhook' : null,
+        debug,
+      },
+      200
+    );
+  }
+  if (backupResult && backupResult.ok) {
+    return json(
+      {
+        ok: true,
+        via: 'backup',
+        backupVia: 'webhook',
+        emailError: emailResult ? emailResult.error : 'Email channel not configured',
+        debug,
+      },
+      200
+    );
+  }
+  // Both channels failed.
+  return json(
+    {
+      ok: false,
+      via: emailResult ? emailResult.via : (backupUrl ? 'backup' : 'none'),
+      error:
+        (emailResult && emailResult.error) ||
+        (backupResult && backupResult.error) ||
+        'No delivery channel succeeded.',
+      backedUp: false,
+      debug,
+    },
+    502
+  );
+}
+
+async function sendResendEmail({ needs, quoteText, quote, attachment, env }) {
+  const to = env.REVIEW_EMAIL;
   const subject =
-    'LEDOVIX 新咨询 / New Lead — ' +
+    'New LEDOVIX Lead — ' +
     (needs.name || 'Unknown') +
     (needs.company ? ' (' + needs.company + ')' : '');
 
@@ -103,7 +169,7 @@ export async function onRequest({ request, env }) {
       clearTimeout(timer);
     }
     if (r.ok && data && data.id) {
-      return json({ ok: true, via: 'resend', id: data.id }, 200);
+      return { ok: true, via: 'resend', id: data.id };
     }
     console.warn('[send-email] Resend error:', r && r.status, JSON.stringify(data));
     // Test-mode restriction hint when Resend rejects the recipient.
@@ -113,33 +179,76 @@ export async function onRequest({ request, env }) {
         ' Resend is in TEST mode: it only delivers to the Resend account owner email. ' +
         'Set REVIEW_EMAIL to that address, or verify a sending domain at https://resend.com/domains.';
     }
-    return json(
-      {
-        ok: false,
-        via: 'resend',
-        error:
-          'Resend API error ' +
-          (r ? r.status : 'no-response') +
-          ': ' +
-          (data && (data.message || JSON.stringify(data)) || 'unknown') +
-          hint,
-        debug,
-      },
-      502
-    );
+    return {
+      ok: false,
+      via: 'resend',
+      error:
+        'Resend API error ' +
+        (r ? r.status : 'no-response') +
+        ': ' +
+        (data && (data.message || JSON.stringify(data)) || 'unknown') +
+        hint,
+    };
   } catch (e) {
     console.warn('[send-email] Resend request failed:', e && e.message ? e.message : String(e));
     const aborted = e && e.name === 'AbortError';
-    return json(
-      {
-        ok: false,
-        via: 'resend',
-        error: (aborted ? 'Resend request timed out (>10s). ' : 'Resend request failed: ') +
-          (e && e.message ? e.message : String(e)),
-        debug,
-      },
-      502
-    );
+    return {
+      ok: false,
+      via: 'resend',
+      error: (aborted ? 'Resend request timed out (>10s). ' : 'Resend request failed: ') +
+        (e && e.message ? e.message : String(e)),
+    };
+  }
+}
+
+// POST a clean lead object to a generic JSON webhook (backup channel).
+async function sendBackup(url, { needs, quoteText, quote, attachment }) {
+  const n = needs || {};
+  const body = {
+    source: 'LEDOVIX website',
+    receivedAt: new Date().toISOString(),
+    contact: {
+      name: n.name || '',
+      email: n.email || '',
+      phone: n.phone || '',
+      company: n.company || '',
+    },
+    requirements: {
+      scenario: fmtVal(n.scenario),
+      screenType: fmtVal(n.screenType),
+      screenSize: fmtVal(n.screenSize),
+      installMethod: fmtVal(n.installMethod),
+      controlSystem: fmtVal(n.controlSystem),
+      connectionType: fmtVal(n.connectionType),
+      viewingDistance: fmtVal(n.viewingDistance),
+    },
+    quote: {
+      total: quote && quote.total,
+      usd: quote && quote.usd,
+      perSqm: quote && quote.perSqm,
+    },
+    quoteText: quoteText,
+    hasAttachment: !!attachment,
+  };
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 10000);
+    let r;
+    try {
+      r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (r.ok || r.status < 400) return { ok: true, via: 'backup' };
+    const txt = await r.text().catch(() => '');
+    return { ok: false, via: 'backup', error: 'Backup webhook returned HTTP ' + r.status + (txt ? ': ' + txt.slice(0, 200) : '') };
+  } catch (e) {
+    return { ok: false, via: 'backup', error: 'Backup webhook request failed: ' + (e && e.message ? e.message : String(e)) };
   }
 }
 

@@ -951,7 +951,7 @@ body{
   <div class="summary-header">
     <div class="summary-check">✓</div>
     <div class="summary-header-text">
-      <h4>需求已采集完成</h4>
+      <h4>Needs Collected</h4>
       <span>Needs Collected Successfully</span>
     </div>
   </div>
@@ -1678,15 +1678,16 @@ function renderBackendQuote(){
    AUTO LEAD EMAIL  (POST /api/send-email -> QQ SMTP -> Leo)
    ============================================================ */
 function leadNoteText(state, detail){
-  // Localized on-page text for the "email sent" notice (Item 2b).
+  // Localized on-page text for the "email sent" notice.
   const M = {
-    sending: {en:'📧 Sending inquiry email to our team…', pt:'📧 Enviando e-mail de consulta à nossa equipe…', es:'📧 Enviando correo de consulta a nuestro equipo…', fr:'📧 Envoi du courriel de demande à notre équipe…', zh:'📧 正在向团队发送询盘邮件…'},
-    sent:    {en:'✅ Inquiry email sent to Leo', pt:'✅ E-mail de consulta enviado ao Leo', es:'✅ Correo de consulta enviado a Leo', fr:'✅ Courriel de demande envoyé à Leo', zh:'✅ 询盘邮件已发送给 Leo'},
-    failed:  {en:'⚠️ Could not auto-send the email — our team will follow up manually.', pt:'⚠️ Não foi possível enviar o e-mail automaticamente — nossa equipe entrará em contato.', es:'⚠️ No se pudo enviar el correo automáticamente — nuestro equipo hará seguimiento.', fr:'⚠️ Envoi automatique impossible — notre équipe suivra manuellement.', zh:'⚠️ 自动发送邮件失败，团队将手动跟进。'}
+    sending: {en:'📧 Sending inquiry email to our team…', pt:'📧 Enviando e-mail de consulta à nossa equipe…', es:'📧 Enviando correo de consulta a nuestro equipo…', fr:'📧 Envoi du courriel de demande à notre équipe…'},
+    sent:    {en:'✅ Inquiry email sent to Leo', pt:'✅ E-mail de consulta enviado ao Leo', es:'✅ Correo de consulta enviado a Leo', fr:'✅ Courriel de demande envoyé à Leo'},
+    backup:  {en:'✅ Inquiry received — backed up for our team (email pending)', pt:'✅ Consulta recebida — salva como backup (e-mail pendente)', es:'✅ Consulta recibida — copia de seguridad (e-mail pendiente)', fr:'✅ Demande reçue — sauvegardée (e-mail en attente)'},
+    failed:  {en:'⚠️ Could not auto-send the email — our team will follow up manually.', pt:'⚠️ Não foi possível enviar o e-mail automaticamente — nossa equipe entrará em contato.', es:'⚠️ No se pudo enviar el correo automáticamente — nuestro equipo hará seguimiento.', fr:'⚠️ Envoi automatique impossible — notre équipe suivra manuellement.'}
   };
   const m = M[state] || M.sending;
   let txt = m[currentLang] || m.en;
-  if(state === 'failed' && detail){
+  if((state === 'failed' || state === 'backup') && detail){
     txt += ' (' + (currentLang === 'zh' ? '原因' : 'reason') + ': ' + detail + ')';
   }
   return txt;
@@ -1701,19 +1702,29 @@ function notifyLead(res){
   const statusEl = document.getElementById('leadStatusNote');
   const setStatus = function(state, detail){ if(statusEl) statusEl.textContent = leadNoteText(state, detail); };
 
+  // Leo (sales team) reads English — always generate an English quote for the
+  // email + Excel attachment, regardless of the customer's UI language.
+  let emailRes = res;
+  try {
+    if (typeof window.generateQuote === 'function') {
+      const en = window.generateQuote(collectedNeeds, { lang: 'en' });
+      if (en && en.ok) emailRes = en;
+    }
+  } catch (e) { /* fall back to on-screen (user-language) quote */ }
+
   const payload = {
     needs: collectedNeeds,
-    quoteText: res ? res.text : '',
-    quote: res && res.quote ? {
-      total: res.quote.total,
-      usd: res.quote.usd,
-      perSqm: res.quote.perSqm
+    quoteText: emailRes ? emailRes.text : '',
+    quote: emailRes && emailRes.quote ? {
+      total: emailRes.quote.total,
+      usd: emailRes.quote.usd,
+      perSqm: emailRes.quote.perSqm
     } : {},
     attachment: null
   };
 
   // Build the filled Excel quotation (best-effort), then send.
-  buildQuotationAttachment(res).then(function(att){
+  buildQuotationAttachment(emailRes).then(function(att){
     if(att) payload.attachment = att;
     return fetch('/api/send-email', {
       method:'POST',
@@ -1729,7 +1740,9 @@ function notifyLead(res){
       try { j = await r.json(); } catch(e){ j = null; }
     }
     if(r.ok && j && j.ok){
-      setStatus('sent');
+      // 'backup' means email was unavailable but the lead was captured via the
+      // backup webhook, so it is still safe.
+      setStatus(j.via === 'backup' ? 'backup' : 'sent', j.emailError);
     } else {
       let reason;
       if (j && j.error) {
@@ -1739,9 +1752,9 @@ function notifyLead(res){
         // the edge killed the function — almost always an outbound call to the email
         // API (api.resend.com) being blocked on a custom domain (Bot Fight Mode /
         // WAF / Zero Trust egress policy). Give an actionable hint.
-        reason = 'Cloudflare 返回 502 且非 JSON：边缘节点拦截了对邮件 API(api.resend.com) 的出站请求。' +
-          '若使用自定义域名，请在 Cloudflare 后台关闭 Bot Fight Mode / 检查 WAF 与 Zero Trust 出站策略；' +
-          '或改用 https://ledovix.pages.dev 验证邮件功能。';
+        reason = 'Cloudflare returned a 502 (not JSON): the edge blocked the outbound call to the email API (api.resend.com). ' +
+          'On a custom domain, disable Bot Fight Mode / check WAF & Zero Trust egress policy in Cloudflare; ' +
+          'or verify via https://ledovix.pages.dev.';
       } else {
         reason = 'server returned ' + r.status + ' (' + (ct.indexOf('application/json') !== -1 ? 'empty/invalid JSON' : 'not JSON') + ')';
       }
@@ -1837,7 +1850,7 @@ function buildQuotationMap(res){
 
   map.product_title = (cfg.typeName ? (cfg.typeName.en || cfg.typeName.cn) : 'LED Display') +
     (cfg.model ? ' ' + cfg.model : '');
-  map.product_subtitle = cfg.typeName ? (cfg.typeName.cn || cfg.typeName.en) : '';
+  map.product_subtitle = cfg.typeName ? (cfg.typeName.en || cfg.typeName.cn) : '';
   map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
   map.control_system = n.controlSystem ? dispVal(n.controlSystem) : '-';
   map.connection_type = n.connectionType ? dispVal(n.connectionType) : '-';
@@ -1935,7 +1948,7 @@ const i18n = {
     'flow.screenSize.snap':'Snapped to standard size: {size}',
     'flow.screenSize.custom':'✏️ Custom size (enter W × H)',
     'flow.controlSystem.q':'Which control system do you prefer?',
-    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1':'Novastar','flow.controlSystem.o2':'Huidu','flow.controlSystem.o3':'Colorlight',
     'flow.controlSystem.o1note':'Market leader — widest range, best for fine-pitch & rental, strong global support',
     'flow.controlSystem.o2note':'Cost-effective async controllers — popular for fixed install & signage',
     'flow.controlSystem.o3note':'Strong in rental / staging & video processing — great value',
@@ -1997,7 +2010,7 @@ const i18n = {
     'flow.screenSize.snap':'Ajustado a tamaño estándar: {size}',
     'flow.screenSize.custom':'✏️ Tamaño personalizado (ancho × alto)',
     'flow.controlSystem.q':'¿Qué sistema de control prefieres?',
-    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1':'Novastar','flow.controlSystem.o2':'Huidu','flow.controlSystem.o3':'Colorlight',
     'flow.controlSystem.o1note':'Líder de mercado — gama más amplia, ideal para paso fino y alquiler, gran soporte global',
     'flow.controlSystem.o2note':'Controladoras asíncronas económicas — populares en instalación fija y señalización',
     'flow.controlSystem.o3note':'Fuerte en alquiler / escenarios y procesamiento de vídeo — gran relación calidad-precio',
@@ -2059,7 +2072,7 @@ const i18n = {
     'flow.screenSize.snap':'Ajustado ao tamanho padrão: {size}',
     'flow.screenSize.custom':'✏️ Tamanho personalizado (largura × altura)',
     'flow.controlSystem.q':'Qual sistema de controle você prefere?',
-    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1':'Novastar','flow.controlSystem.o2':'Huidu','flow.controlSystem.o3':'Colorlight',
     'flow.controlSystem.o1note':'Líder de mercado — maior variedade, melhor para passo fino e locação, forte suporte global',
     'flow.controlSystem.o2note':'Controladoras assíncronas custo-efetivas — populares em instalação fixa e sinalização',
     'flow.controlSystem.o3note':'Forte em locação / palco e processamento de vídeo — ótimo custo-benefício',
@@ -2121,7 +2134,7 @@ const i18n = {
     'flow.screenSize.snap':'Ajusté à la taille standard : {size}',
     'flow.screenSize.custom':'✏️ Taille personnalisée (largeur × hauteur)',
     'flow.controlSystem.q':'Quel système de contrôle préférez-vous ?',
-    'flow.controlSystem.o1':'Novastar (诺瓦)','flow.controlSystem.o2':'Huidu (灰度)','flow.controlSystem.o3':'Colorlight (卡莱特)',
+    'flow.controlSystem.o1':'Novastar','flow.controlSystem.o2':'Huidu','flow.controlSystem.o3':'Colorlight',
     'flow.controlSystem.o1note':'Leader du marché — plus large gamme, idéal pour pitch fin et location, support mondial solide',
     'flow.controlSystem.o2note':'Contrôleurs asynchrones économiques — populaires en installation fixe et signalétique',
     'flow.controlSystem.o3note':'Fort en location / scène et traitement vidéo — excellent rapport qualité-prix',
@@ -2142,7 +2155,7 @@ const i18n = {
     'flow.complete':'Merci beaucoup ! 🎉 J\'ai rassemblé tout ce dont j\'ai besoin. Je vais préparer une solution LED personnalisée et vous l\'envoyer bientôt.',
     'footer.desc':'Fournisseur professionnel de solutions d\'écrans LED. Faisant briller votre vision.',
     'footer.products':'Produits','footer.company':'Entreprise','footer.contact':'Contact',
-  }
+  },
 };
 
 const langLabels = {en:'English',es:'Español',pt:'Português',fr:'Français'};

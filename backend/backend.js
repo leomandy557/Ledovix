@@ -157,6 +157,21 @@ function rmb(n) { return '¥' + fmt(Math.round(n)); }
 function usd(n) { return '$' + fmt(Math.round(n)); }
 function mm(n) { return fmt(n, n % 1 ? 1 : 0); }
 
+// For English output, strip the Chinese half of a "中文 / English" label, and
+// translate a few standalone Chinese tokens (台=units, 面议=TBC) so the quote
+// reads fully in English.
+function enClean(s) {
+  if (typeof s !== 'string') return s;
+  var i = s.indexOf(' / ');
+  if (i >= 0) return s.slice(i + 3).trim();
+  return s
+    .replace(/台/g, 'units')
+    .replace(/面议/g, 'TBC')
+    .replace(/[一-鿿]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function formatQuoteText(rec, quote, lang) {
   lang = lang || 'en';
   var cfg = rec.config, spec = rec.spec, geo = quote.geometry, t = rec.config || {};
@@ -171,14 +186,14 @@ function formatQuoteText(rec, quote, lang) {
   /* configuration summary */
   line((lang === 'zh' ? '配置概览 / CONFIGURATION' : 'CONFIGURATION'));
   line('-'.repeat(58));
-  line('  ' + (lang === 'zh' ? '类型' : 'Type') + '         : ' + (cfg.typeName.cn) + '  (' + (cfg.typeName.en || cfg.typeName.cn) + ')');
+  line('  ' + (lang === 'zh' ? '类型' : 'Type') + '         : ' + (lang === 'zh' ? (cfg.typeName.cn || cfg.typeName.en) : (cfg.typeName.en || cfg.typeName.cn)) + (lang === 'zh' ? '  (' + (cfg.typeName.en || '') + ')' : ''));
   line('  ' + (lang === 'zh' ? '推荐型号' : 'Model') + '        : ' + cfg.model + '   P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm');
   line('  ' + (lang === 'zh' ? '屏幕尺寸' : 'Screen size') + '    : ' + geo.W.toFixed(3) + ' m (W) x ' + geo.H.toFixed(3) + ' m (H)  =  ' + geo.area.toFixed(2) + ' m²'
     + (cfg.qty > 1 ? '   x ' + cfg.qty + ' sets' : ''));
   line('  ' + (lang === 'zh' ? '分辨率' : 'Resolution') + '     : ' + fmt(geo.pxW) + ' x ' + fmt(geo.pxH) + ' px  (' + (geo.totalPx / 1e6).toFixed(2) + ' M pixels)');
   if (geo.unitKind === 'cabinet') line('  ' + (lang === 'zh' ? '箱体' : 'Cabinet') + '         : ' + mm(geo.unitW) + ' x ' + mm(geo.unitH) + ' mm   /  ' + fmt(geo.cabinetCount) + ' pcs');
   line('  ' + (lang === 'zh' ? '功耗' : 'Power') + '          : ' + geo.maxKW.toFixed(2) + ' kW max  /  ' + geo.avgKW.toFixed(2) + ' kW avg');
-  line('  ' + (lang === 'zh' ? '安装方式' : 'Installation') + '    : ' + (cfg.installName || (lang === 'zh' ? '待确认' : 'TBC')));
+  line('  ' + (lang === 'zh' ? '安装方式' : 'Installation') + '    : ' + ((lang === 'zh' ? (cfg.installName || '待确认') : (cfg.installNameEn || cfg.installName || 'TBC'))));
   line('  ' + (lang === 'zh' ? '包装' : 'Packing') + '         : ' + (cfg.packing === 'flight' ? (lang === 'zh' ? '航空箱' : 'Flight case') : (lang === 'zh' ? '木箱' : 'Wooden crate')) + ' (export standard)');
   line('');
 
@@ -186,17 +201,19 @@ function formatQuoteText(rec, quote, lang) {
   line((lang === 'zh' ? '价格明细 / PRICE BREAKDOWN' : 'PRICE BREAKDOWN'));
   line('-'.repeat(58));
   quote.lines.forEach(function (it) {
+    var nm = (lang !== 'zh') ? enClean(it.name) : it.name;
+    var sb = (lang !== 'zh') ? enClean(it.sub) : it.sub;
     if (it.included) {
-      line('  ✓ ' + it.name + '  (' + (lang === 'zh' ? '已含' : 'included') + ')');
+      line('  ✓ ' + nm + '  (' + (lang === 'zh' ? '已含' : 'included') + ')');
       return;
     }
     if (it.tbd) {
-      line('  ' + it.name + '  → ' + (lang === 'zh' ? '面议' : 'TBC'));
+      line('  ' + nm + '  → ' + (lang === 'zh' ? '面议' : 'TBC'));
       return;
     }
     var amt = rmb(it.amount);
-    line('  ' + it.name);
-    line('      ' + it.sub + '   =   ' + amt);
+    line('  ' + nm);
+    line('      ' + sb + '   =   ' + amt);
   });
   line('');
 
