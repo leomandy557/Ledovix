@@ -1122,6 +1122,7 @@ let collectedNeeds = {};
 let chatMessages = [];
 let apiMessages = [];       // Full conversation history for Qwen API
 let isAIProcessing = false; // Lock to prevent double-sends
+let isAdvancing = false;  // Hide option buttons during step transitions (prevents flash)
 
 // ==================== INIT ====================
 function init(){
@@ -1190,6 +1191,7 @@ function startChat(){
   apiMessages = [];
   fallbackActive = false;
   isAIProcessing = false;
+  isAdvancing = false;
   document.getElementById('chatMessages').innerHTML = '';
 
   // Show leo sidebar + chat panel
@@ -1267,7 +1269,7 @@ function renderMessages(){
   // Sticky quick-reply options for the CURRENT step — the primary input method.
   // Each MC step also gets a localized "Other / 自定义" custom option as its LAST
   // choice, which reveals an inline free-text box (replacing the hidden bottom AI bar).
-  if(!typing && showScriptedOptions()){
+  if(!typing && showScriptedOptions() && !isAdvancing){
     const flow = getActiveFlow();
     if(currentStep < flow.length){
       const step = flow[currentStep];
@@ -1320,6 +1322,7 @@ function showScriptedOptions(){
 }
 
 function handleOptionClick(option){
+  isAdvancing = true;
   const flow = getActiveFlow();
   const step = flow[currentStep];
   const isObj = option && typeof option === 'object';
@@ -1363,6 +1366,7 @@ function showCustomInput(placeholder){
 function submitCustomInput(){
   const f = document.getElementById('customInputField');
   if(!f || !f.value.trim()) return;
+  isAdvancing = true;
   const val = f.value.trim();
   document.getElementById('customInput').remove();
   addUserMessage(val);
@@ -1443,6 +1447,7 @@ function submitScreenSize(){
   let w = parseFloat(wInput.value);
   let h = parseFloat(hInput.value);
   if(!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+  isAdvancing = true;
   w = snapSize(w);
   h = snapSize(h);
   const display = formatSize(w, h);
@@ -1459,6 +1464,7 @@ function advanceConversation(){
     showTyping();
     setTimeout(()=>{
       hideTyping();
+      isAdvancing = false;
       addBotMessage(t('flow.complete'));
       setTimeout(showSummary,2000);
     },800);
@@ -1470,6 +1476,7 @@ function advanceConversation(){
     setTimeout(()=>{
       hideTyping();
       currentStep = nextStep;
+      isAdvancing = false;
       addBotMessage(flow[nextStep].question, undefined, flow[nextStep].id);
       showContactForm();
       updateProgress();
@@ -1482,6 +1489,7 @@ function advanceConversation(){
     hideTyping();
     const step = flow[nextStep];
     currentStep = nextStep;
+    isAdvancing = false;
     if(step.isCustom){
       addBotMessage(step.question, undefined, step.id);
       showCustomInput(step.placeholder||'Type your answer...');
@@ -1563,6 +1571,7 @@ function submitContact(){
     return;
   }
 
+  isAdvancing = true;
   collectedNeeds.name = name;
   collectedNeeds.email = email;
   collectedNeeds.phone = phone;
@@ -1690,7 +1699,7 @@ function leadNoteText(state, detail){
    ============================================================ */
 function notifyLead(res){
   const statusEl = document.getElementById('leadStatusNote');
-  const setStatus = function(state){ if(statusEl) statusEl.textContent = leadNoteText(state); };
+  const setStatus = function(state, detail){ if(statusEl) statusEl.textContent = leadNoteText(state, detail); };
 
   const payload = {
     needs: collectedNeeds,
@@ -1721,7 +1730,7 @@ function notifyLead(res){
         setStatus('failed', reason);
       }
     })
-    .catch(function(e){ console.error('[send-email] request error:', e); setStatus('failed', 'network/request error'); });
+    .catch(function(e){ console.error('[send-email] request error:', e); setStatus('failed', String(e && e.message || e || 'network/request error')); });
 }
 
 // Fill SimpLED_quotation_template.xlsx with the customer info + reference plan,

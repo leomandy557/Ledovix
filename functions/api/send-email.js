@@ -81,47 +81,65 @@ export async function onRequest({ request, env }) {
   const text = buildText(needs, quoteText, quote, attachment);
   const html = buildHtml(needs, quoteText, quote, attachment);
 
+  const mail = {
+    from: { name: 'LEDOVIX Lead Bot', email: user },
+    to: { name: 'Leo', email: to },
+    subject,
+    text,
+    html,
+    attachments: attachment ? [attachment] : undefined,
+  };
+
+  // Try the two common QQ SMTP transports. Some Cloudflare edge nodes have
+  // trouble with implicit TLS on 465; STARTTLS on 587 often works better.
+  const attempts = [];
   try {
+    attempts.push('465 TLS');
     const result = await WorkerMailer.send(
       {
         host: 'smtp.qq.com',
         port: 465,
         secure: true, // implicit TLS on 465
         authType: 'login',
-        credentials: {
-          username: user,
-          password: pass,
-        },
+        credentials: { username: user, password: pass },
         socketTimeoutMs: 15000,
         responseTimeoutMs: 15000,
       },
-      {
-        from: { name: 'LEDOVIX Lead Bot', email: user },
-        to: { name: 'Leo', email: to },
-        subject,
-        text,
-        html,
-        attachments: attachment ? [attachment] : undefined,
-      }
+      mail
     );
-
-    return json({
-      ok: true,
-      accepted: result.accepted,
-      rejected: result.rejected,
-      messageId: result.messageId,
-    });
-  } catch (err) {
-    console.error('[send-email] WorkerMailer.send failed:', err);
-    return json(
-      {
-        ok: false,
-        error:
-          'SMTP send failed: ' +
-          (err && err.message ? err.message : String(err)),
-      },
-      502
-    );
+    return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:465' }, 200);
+  } catch (err465) {
+    console.warn('[send-email] 465 failed:', err465 && err465.message ? err465.message : String(err465));
+    try {
+      attempts.push('587 STARTTLS');
+      const result = await WorkerMailer.send(
+        {
+          host: 'smtp.qq.com',
+          port: 587,
+          secure: false, // plain socket, then STARTTLS
+          startTls: true,
+          authType: 'login',
+          credentials: { username: user, password: pass },
+          socketTimeoutMs: 15000,
+          responseTimeoutMs: 15000,
+        },
+        mail
+      );
+      return json({ ok: true, accepted: result.accepted, rejected: result.rejected, messageId: result.messageId, via: 'smtp.qq.com:587' }, 200);
+    } catch (err587) {
+      console.error('[send-email] both 465 and 587 failed:', err587);
+      return json(
+        {
+          ok: false,
+          error:
+            'SMTP send failed (tried ' + attempts.join(' and ') + '). ' +
+            'Last error: ' + (err587 && err587.message ? err587.message : String(err587)) + '. ' +
+            'Check QQ_SMTP_PASS is the 16-character authorization code (not login password), ' +
+            'and that Cloudflare Functions compatibility flag `nodejs_compat` is enabled.',
+        },
+        502
+      );
+    }
   }
 }
 
