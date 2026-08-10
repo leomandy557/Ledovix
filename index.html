@@ -984,8 +984,6 @@ body{
 <script src="backend/recommend.js"></script>
 <script src="backend/quoteEngine.js"></script>
 <script src="backend/backend.js"></script>
-<!-- SheetJS (vendored locally — no CDN dependency) used to fill the Excel quotation attachment -->
-<script src="assets/vendor/xlsx.full.min.js"></script>
 
 <script>
 // ==================== DATA ====================
@@ -1715,22 +1713,17 @@ function notifyLead(res){
   const payload = {
     needs: collectedNeeds,
     quoteText: emailRes ? emailRes.text : '',
-    quote: emailRes && emailRes.quote ? {
-      total: emailRes.quote.total,
-      usd: emailRes.quote.usd,
-      perSqm: emailRes.quote.perSqm
-    } : {},
-    attachment: null
+    // Send the FULL quote + rec so the server builds the filled Excel
+    // attachment itself (template is embedded in the edge function, contact
+    // info comes from the webpage).
+    quote: emailRes && emailRes.quote ? emailRes.quote : {},
+    rec: emailRes && emailRes.rec ? emailRes.rec : {}
   };
 
-  // Build the filled Excel quotation (best-effort), then send.
-  buildQuotationAttachment(emailRes).then(function(att){
-    if(att) payload.attachment = att;
-    return fetch('/api/send-email', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
+  fetch('/api/send-email', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
   }).then(async function(r){
     // Cloudflare may abort the function with a 502 HTML page (CPU/timeout limit
     // during SMTP). Don't let that throw a JSON parse error — read it safely.
@@ -1765,46 +1758,6 @@ function notifyLead(res){
   .catch(function(e){ console.error('[send-email] request error:', e); setStatus('failed', String(e && e.message || e || 'network/request error')); });
 }
 
-// Fill SimpLED_quotation_template.xlsx with the customer info + reference plan,
-// return {filename, content(base64), mimeType} ready to attach. null on failure.
-async function buildQuotationAttachment(res){
-  try {
-    if(typeof XLSX === 'undefined') return null;
-    const resp = await fetch('assets/SimpLED_quotation_template.xlsx');
-    if(!resp.ok) return null;
-    const buf = await resp.arrayBuffer();
-    const wb = XLSX.read(new Uint8Array(buf), {type:'array'});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const map = buildQuotationMap(res);
-
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    for(let R=range.s.r; R<=range.e.r; R++){
-      for(let C=range.s.c; C<=range.e.c; C++){
-        const addr = XLSX.utils.encode_cell({r:R, c:C});
-        const cell = ws[addr];
-        if(cell && typeof cell.v === 'string'){
-          const replaced = cell.v.replace(/\{\{(\w+)\}\}/g, function(_m, k){
-            const v = map[k];
-            return (v !== undefined && v !== null && v !== '') ? String(v) : '';
-          });
-          if(replaced !== cell.v){ cell.v = replaced; delete cell.w; }
-        }
-      }
-    }
-
-    const b64 = XLSX.write(wb, {type:'base64', bookType:'xlsx'});
-    const safeName = (collectedNeeds.name || 'Lead').replace(/[^\w\-]+/g, '_');
-    return {
-      filename: 'LEDOVIX_Quotation_' + safeName + '.xlsx',
-      content: b64,
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    };
-  } catch(e){
-    console.error('[quotation] failed to build Excel attachment:', e);
-    return null;
-  }
-}
-
 // Render a collected-needs value for display (handles option-objects
 // {label, brand, note} and screenSize {width, height, display}).
 function dispVal(v){
@@ -1816,72 +1769,8 @@ function dispVal(v){
   return (v === null || v === undefined) ? '' : String(v);
 }
 
-// Build the {{token}} -> value map for the Excel template.
-function buildQuotationMap(res){
-  const n = collectedNeeds || {};
-  const cfg = (res && res.rec) ? res.rec.config : {};
-  const quote = (res && res.quote) || {};
-  const spec = (res && res.rec) ? res.rec.spec : null;
-  const geo = (res && res.quote && res.quote.geometry) ? res.quote.geometry : null;
-  const today = new Date();
-  const dateStr = today.getFullYear() + '-' +
-    String(today.getMonth()+1).padStart(2,'0') + '-' +
-    String(today.getDate()).padStart(2,'0');
-
-  const map = {
-    seller_company: 'LEDOVIX',
-    seller_tagline: 'Professional LED Display Solutions',
-    seller_name: 'Leo',
-    prepared_by: 'Leo / LEDOVIX',
-    currency: 'RMB',
-    quotation_number: 'LED-' + today.getTime(),
-    date: dateStr,
-    customer_name: n.name || '-',
-    customer_tel: n.phone || '-',
-    customer_email: n.email || '-',
-    services_note: 'Includes remote technical support & spare parts kit.',
-    payment_terms: '50% T/T deposit, 50% before shipment',
-    warranty: '2 years',
-    lead_time: '15-20 working days',
-    price_validity: '30 days',
-    delivery_terms: 'EXW / FOB Shenzhen',
-    vat_note: 'Price is VAT-inclusive where applicable'
-  };
-
-  map.product_title = (cfg.typeName ? (cfg.typeName.en || cfg.typeName.cn) : 'LED Display') +
-    (cfg.model ? ' ' + cfg.model : '');
-  map.product_subtitle = cfg.typeName ? (cfg.typeName.en || cfg.typeName.cn) : '';
-  map.screen_size = n.screenSize ? (n.screenSize.display || (n.screenSize.width + 'm × ' + n.screenSize.height + 'm')) : '-';
-  map.control_system = n.controlSystem ? dispVal(n.controlSystem) : '-';
-  map.connection_type = n.connectionType ? dispVal(n.connectionType) : '-';
-  map.pixel_pitch = cfg.pitch ? ('P' + cfg.pitch + (cfg.pitchV && cfg.pitchV !== cfg.pitch ? ' x P' + cfg.pitchV : '') + 'mm') : '-';
-  if(geo && geo.pxW && geo.pxH) map.resolution = Math.round(geo.pxW) + ' × ' + Math.round(geo.pxH) + ' px';
-  else if(geo && geo.totalPx) map.resolution = Math.round(geo.totalPx/1e6) + ' M pixels';
-  else map.resolution = '-';
-  map.brightness = cfg.brightness || '-';
-  map.refresh_rate = cfg.refresh || '-';
-  map.ip_rating = cfg.ipRating || '-';
-
-  const lines = (quote.lines && Array.isArray(quote.lines)) ? quote.lines : [];
-  const baseLine = lines.find(function(l){ return !l.included && !l.tbd; }) || lines[0];
-  map.base_qty = baseLine && baseLine.qty ? baseLine.qty : 1;
-  map.base_desc = baseLine ? baseLine.name : (map.product_title || '-');
-  map.base_price = (baseLine && typeof baseLine.amount === 'number') ? Math.round(baseLine.amount) : '-';
-
-  let optIdx = 0;
-  for(const l of lines){
-    if(l === baseLine) continue;
-    if(l.included || l.tbd) continue;
-    if(optIdx >= 10) break;
-    map['opt'+optIdx+'_qty'] = l.qty ? l.qty : 1;
-    map['opt'+optIdx+'_desc'] = l.name || '-';
-    map['opt'+optIdx+'_price'] = (typeof l.amount === 'number') ? Math.round(l.amount) : '-';
-    optIdx++;
-  }
-
-  map.final_price = (quote.total !== undefined) ? Math.round(quote.total) : '-';
-  return map;
-}
+// (Excel quotation attachment is now built server-side in
+// functions/api/quotation_xlsx.js — template embedded, contact from webpage.)
 
 // ==================== RESET ====================
 function resetAll(){

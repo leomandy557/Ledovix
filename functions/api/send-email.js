@@ -1,3 +1,5 @@
+import { buildQuotationXlsx } from './quotation_xlsx.js';
+
 // Cloudflare Pages Function — auto-send a lead/quote email to Leo, with an
 // optional backup webhook so a lead is never lost even if email fails.
 //
@@ -50,7 +52,18 @@ export async function onRequest({ request, env }) {
   const needs = payload && payload.needs ? payload.needs : {};
   const quoteText = (payload && payload.quoteText) || '';
   const quote = payload && payload.quote ? payload.quote : {};
-  const attachment = payload && payload.attachment ? payload.attachment : null;
+  const rec = payload && payload.rec ? payload.rec : {};
+
+  // Best-effort: build the filled Excel quotation server-side (template is
+  // embedded in quotation_xlsx.js, contact info comes from the webpage). If it
+  // fails we fall back to any attachment the client may have sent.
+  let attachment = null;
+  try {
+    attachment = await buildQuotationXlsx({ needs, quote, rec });
+  } catch (e) {
+    console.warn('[send-email] failed to build xlsx attachment:', e && e.message ? e.message : String(e));
+    attachment = payload && payload.attachment ? payload.attachment : null;
+  }
 
   const hasResend = !!env.RESEND_API_KEY && !!env.REVIEW_EMAIL;
   const backupUrl = env.BACKUP_WEBHOOK_URL || '';
