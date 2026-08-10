@@ -12,19 +12,29 @@ Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment vari
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | `RESEND_API_KEY` | Resend 的 API Key（resend.com 注册后生成，形如 `re_xxxx`） | `re_abc123...` |
-| `REVIEW_EMAIL` | 接收咨询邮件的邮箱 | `leo@ledovix.com` |
+| `REVIEW_EMAIL` | 接收咨询邮件的邮箱。**测试模式下必须是 Resend 账户主邮箱**（见下方「Resend 测试模式」说明），验证域名后可改任意地址 | `leomandy557@gmail.com`（测试）/ `leo@ledovix.com`（验证域名后） |
 | `RESEND_FROM` | （可选）发件人。不填则默认用 Resend 测试发件箱 `LEDOVIX <onboarding@resend.dev>`。若要显示你的品牌域名，需先在 Resend 验证该域名 | `LEDOVIX <leo@ledovix.com>` |
 
 > 只要设了 `RESEND_API_KEY`，函数就走 Resend 的 HTTP 接口发信，一次 HTTPS 请求、CPU 消耗极低，**不会触发 Cloudflare 免费版 50ms CPU 限制**，稳。
 
-### 回退路径：QQ SMTP（免费版可能 502，仅作兜底）
+### ⚠️ Resend 测试模式（test mode）限制收件人
 
-| 变量名 | 说明 | 示例 |
-|--------|------|------|
-| `QQ_SMTP_USER` | 用于**发送**邮件的 QQ 邮箱地址 | `123456@qq.com` |
-| `QQ_SMTP_PASS` | QQ 邮箱**授权码**（不是登录密码！需在 QQ 邮箱 → 设置 → 账户 → 开启 SMTP 服务后生成） | `abcdefghijklmnop` |
+未验证发送域名的 Resend 账户处于**测试模式**，只能把邮件发往 **Resend 账户主邮箱**（即注册 Resend 时用的邮箱，如 `leomandy557@gmail.com`）。发往其他地址（如 `leo@ledovix.com`）会返回 **403**：
 
-> ⚠️ `QQ_SMTP_PASS` 必须填「授权码」。填登录密码会报 `535` 认证失败。QQ SMTP 走 TCP+TLS，免费版常因 CPU/超时 502，故仅作 Resend 不可用时的兜底。
+```
+You can only send testing emails to your own email address (leomandy557@gmail.com).
+To send emails to other recipients, please verify a domain at https://resend.com/domains
+```
+
+**两种解法（任选其一）：**
+1. **快速验证链路**：把 `REVIEW_EMAIL` 临时设为 Resend 账户主邮箱（如 `leomandy557@gmail.com`）。这样能立即收到真实询盘邮件，确认整条链路通。
+2. **正式做法**：在 https://resend.com/domains 添加并验证你的域名（如 `ledovix.com`，加几条 DNS 记录），验证后即可用 `leo@ledovix.com` 收件，并可在 `RESEND_FROM` 用品牌域名发件。
+
+> 函数的 403 错误已带此提示（含域名验证链接），前端摘要面板会显示 `(reason: Resend API error 403: ... verify a domain ...)`。
+
+### QQ SMTP（已移除）
+
+> 本项目早期版本用 QQ SMTP（`cloudflare:sockets` + `worker-mailer`）作兜底，但 Cloudflare 免费版对出站 TCP+TLS 常因 CPU/超时返回 **502**，且已被证实会杀掉函数。当前 `send-email.js` 为**纯 Resend 路径**，已彻底移除 QQ SMTP 依赖（`_wm.js` / `cloudflare:sockets` 不再被引用）。如需恢复，另行评估付费计划或 Mailchannels。
 
 ## 2. 兼容性标志（按需）
 
@@ -37,7 +47,7 @@ Cloudflare 控制台 → 你的 Pages 项目 → **Settings → Environment vari
 - **Root directory（根目录）**：`/`（默认）。
 - **Framework preset**：`None`（纯静态）。
 
-⚠️ **重要 — Cloudflare Pages Functions 不会在构建前运行 `npm install`**。它只用 esbuild 直接打包 `functions/` 目录，因此 `package.json` 里的 npm 依赖（如 `worker-mailer`）在构建时无法被解析，会报 `Could not resolve "worker-mailer"` 导致部署失败。**本项目已把 `worker-mailer` 的源码内联到 `functions/api/_wm.js`**（文件名以 `_` 开头，不会被当作路由），`send-email.js` 改为 `import { WorkerMailer } from './_wm.js'`。`_wm.js` 仅依赖 Cloudflare 内置模块 `cloudflare:sockets`（打包器会自动 externalize），所以整个 Functions 构建**零 npm 依赖**，必定成功。不要再把 `worker-mailer` 加回 `package.json` 当作运行时依赖。
+⚠️ **重要 — Cloudflare Pages Functions 不会在构建前运行 `npm install`**。它只用 esbuild 直接打包 `functions/` 目录。当前 `send-email.js` 为**纯 Resend 路径**：只调用全局 `fetch` 访问 `https://api.resend.com/emails`，**零 npm 依赖、不引用任何内置 TCP 模块**，构建必定成功，也不触发免费版 CPU/超时 502。早期的 `functions/api/_wm.js`（`cloudflare:sockets` worker-mailer 内联）已不再被引用，可保留也可删除，不影响构建。不要往 `package.json` 加运行时依赖。
 
 ## 4. 验证「对话 → 报价 → 发邮件给 Leo」链路
 
