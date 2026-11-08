@@ -702,51 +702,9 @@ body{
   background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:.7rem .85rem;
 }
 .quote-note.warn{background:#fef2f2;border-color:#fecaca;color:#991b1b;}
-
-/* ===== Password gate ===== */
-.password-gate{
-  position:fixed;inset:0;z-index:99999;
-  display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 55%,#2563eb 100%);
-  font-family:inherit;
-}
-.password-gate.hidden{display:none;}
-.password-card{
-  width:min(92vw,380px);
-  background:#fff;border-radius:18px;
-  padding:2rem 1.8rem 1.8rem;text-align:center;
-  box-shadow:0 24px 60px rgba(0,0,0,.35);
-}
-.password-logo{font-weight:800;letter-spacing:.18em;font-size:1.4rem;color:#2b5cff;margin-bottom:.6rem;}
-.password-title{margin:.2rem 0 .35rem;font-size:1.25rem;color:#0f172a;}
-.password-sub{margin:0 0 1.1rem;font-size:.9rem;color:#64748b;line-height:1.4;}
-.password-input{
-  width:100%;box-sizing:border-box;padding:.7rem .9rem;font-size:1rem;
-  border:1px solid #d6dbe6;border-radius:10px;outline:none;margin-bottom:.5rem;
-}
-.password-input:focus{border-color:#2b5cff;box-shadow:0 0 0 3px rgba(43,92,255,.15);}
-.password-error{color:#dc2626;font-size:.82rem;min-height:1.1em;margin-bottom:.5rem;}
-.password-btn{
-  width:100%;padding:.7rem 1rem;font-size:1rem;font-weight:700;color:#fff;
-  background:#2b5cff;border:none;border-radius:10px;cursor:pointer;
-  transition:background .15s ease;
-}
-.password-btn:hover{background:#1f49d6;}
 </style>
 </head>
 <body>
-
-<!-- ========== PASSWORD GATE ========== -->
-<div class="password-gate" id="passwordGate">
-  <div class="password-card">
-    <div class="password-logo">LEDOVIX</div>
-    <h2 class="password-title" data-i18n="gate.title">Protected Access</h2>
-    <p class="password-sub" data-i18n="gate.sub">Please enter the access password to open the consultant.</p>
-    <input type="password" id="passwordInput" class="password-input" placeholder="Access password" autocomplete="off" onkeydown="if(event.key==='Enter')checkPassword()">
-    <div class="password-error" id="passwordError"></div>
-    <button class="password-btn" id="passwordBtn" onclick="checkPassword()">Enter</button>
-  </div>
-</div>
 
 <!-- ========== NAVBAR ========== -->
 <nav class="navbar">
@@ -1027,33 +985,6 @@ const AI_CONFIG = {
   enabled: true,         // AI mode ON via secure proxy (no frontend key required)
 };
 
-// ==================== SITE PASSWORD ====================
-/* Client-side password gate. NOTE: the password is visible in page source —
-   this is a light deterrent, NOT true security. For real protection, you'd
-   need server-side authentication (e.g. Cloudflare Access / a backend check). */
-const SITE_PASSWORD = 'FsXfyCRI94gVAmxl';
-let passwordUnlocked = false;
-
-function checkPassword(){
-  const input = document.getElementById('passwordInput');
-  const error = document.getElementById('passwordError');
-  if(!input) return;
-  if(input.value.trim() === SITE_PASSWORD){
-    passwordUnlocked = true;
-    document.getElementById('passwordGate').classList.add('hidden');
-    error.textContent = '';
-  } else {
-    error.textContent = 'Incorrect password. Please try again.';
-    input.value = '';
-    input.focus();
-  }
-}
-
-function promptPasswordGate(){
-  document.getElementById('passwordGate').classList.remove('hidden');
-  document.getElementById('passwordInput').focus();
-}
-
 // ==================== LEO SYSTEM PROMPT ====================
 /* Fixed self-introduction template — shown once when the chat opens, so we
    don't burn an API call regenerating the same greeting every session. */
@@ -1171,13 +1102,11 @@ function renderSolutions(){
 
 // ==================== CARD → CHAT TRANSITION ====================
 function dismissCard(){
-  if(!passwordUnlocked){ promptPasswordGate(); return; }
   document.getElementById('cardOverlay').classList.add('hidden');
   startChat();
 }
 
 function openChat(){
-  if(!passwordUnlocked){ promptPasswordGate(); return; }
   document.getElementById('cardOverlay').classList.add('hidden');
   startChat();
 }
