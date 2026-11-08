@@ -18,6 +18,14 @@ const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/co
 const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 export async function onRequest({ request, env }) {
+  // GET = diagnostic probe (safe, no secrets returned)
+  if (request.method === 'GET') {
+    return new Response(JSON.stringify({
+      aiBinding: !!env.AI,
+      model: env.WORKERS_AI_MODEL || DEFAULT_MODEL,
+      dashscopeFallback: !!env.DASHSCOPE_API_KEY,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -68,10 +76,8 @@ export async function onRequest({ request, env }) {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     } catch (err) {
-      // Workers AI failed — fall through to DashScope if configured, else report.
-      if (!env.DASHSCOPE_API_KEY) {
-        return jsonError(502, 'Workers AI request failed: ' + (err && err.message));
-      }
+      // Surface the real error instead of silently falling back (debug mode).
+      return jsonError(502, 'Workers AI failed [' + model + ']: ' + (err && err.message));
     }
   }
 
