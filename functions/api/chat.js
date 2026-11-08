@@ -15,7 +15,7 @@
 //   @cf/meta/llama-3.1-8b-instruct  (fast, cheap, good English quality)
 
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
-const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 
 export async function onRequest({ request, env }) {
   // GET = diagnostic probe (safe, no secrets returned)
