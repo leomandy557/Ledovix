@@ -18,31 +18,13 @@ const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/co
 const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 
 export async function onRequest({ request, env }) {
-  // GET = diagnostic probe (safe, no secrets returned)
+  // GET = lightweight diagnostic probe (safe, no secrets returned, no AI call)
   if (request.method === 'GET') {
-    const info = {
+    return new Response(JSON.stringify({
       aiBinding: !!env.AI,
-      aiBindingType: typeof env.AI,
-      hasRun: !!(env.AI && typeof env.AI.run === 'function'),
       model: env.WORKERS_AI_MODEL || DEFAULT_MODEL,
       dashscopeFallback: !!env.DASHSCOPE_API_KEY,
-    };
-    // Actually try a tiny AI call and capture the raw error
-    if (env.AI && typeof env.AI.run === 'function') {
-      try {
-        const r = await env.AI.run(info.model, {
-          messages: [{ role: 'user', content: 'Say OK' }],
-          max_tokens: 5,
-        });
-        info.testCall = 'SUCCESS';
-        info.testResponse = (r && r.response) || JSON.stringify(r).slice(0, 200);
-      } catch (e) {
-        info.testCall = 'FAILED';
-        info.testError = String(e && e.message || e);
-        info.testErrorStack = String(e && e.stack || '').slice(0, 300);
-      }
-    }
-    return new Response(JSON.stringify(info), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
